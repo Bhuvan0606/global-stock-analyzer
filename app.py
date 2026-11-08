@@ -32,11 +32,10 @@ if st.button("🔎 Analyze Market"):
         with st.spinner("Analyzing market..."):
 
             data = get_stock_data(
-                ticker.upper(),
-                period="60d",
-                interval=interval
+    ticker.upper(),
+    period="30d",
+    interval=interval
             )
-
             if data is None:
 
                 st.error(
