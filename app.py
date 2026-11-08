@@ -1,100 +1,181 @@
 import streamlit as st
 from analyzer import get_stock_data, calculate_indicators, get_signal
 
-
 st.set_page_config(
     page_title="Global Stock Analyzer",
-    page_icon="📈"
+    page_icon="📈",
+    layout="wide"
 )
 
-st.title("📈 Global Stock Analyzer")
-st.write("Analyze stocks using historical market data.")
+st.title("🌍 Global Stock Analyzer")
+st.caption("Live-market trading setup analyzer")
 
 
 ticker = st.text_input(
     "Enter stock symbol",
-    placeholder="Example: AAPL"
+    placeholder="Example: AAPL, MSFT, RELIANCE.NS, TCS.NS"
 )
 
+interval = st.selectbox(
+    "Market timeframe",
+    ["5m", "15m", "30m", "1h"],
+    index=1
+)
 
-if st.button("Analyze Stock"):
+if st.button("🔎 Analyze Market"):
 
     if not ticker:
-        st.warning("Please enter a stock symbol.")
+        st.warning("Enter a stock symbol first.")
 
     else:
 
-        with st.spinner("Analyzing..."):
+        with st.spinner("Analyzing market..."):
 
-            data = get_stock_data(ticker.upper())
+            data = get_stock_data(
+                ticker.upper(),
+                period="60d",
+                interval=interval
+            )
 
             if data is None:
-                st.error("Stock not found or no data available.")
+
+                st.error(
+                    "No market data found. "
+                    "Check the symbol and try again."
+                )
 
             else:
 
                 data = calculate_indicators(data)
 
-                signal = get_signal(data)
+                result = get_signal(data)
 
-                latest = data.iloc[-1]
-
-                current_price = float(latest["Close"])
-                rsi = float(latest["RSI"])
-
-                st.subheader(
-                    f"{ticker.upper()} Analysis"
+                st.success(
+                    f"Market analysis completed for {ticker.upper()}"
                 )
 
-                col1, col2, col3 = st.columns(3)
+                # -------------------------
+                # Main signal
+                # -------------------------
+
+                st.subheader("Trading Setup")
+
+                signal = result["signal"]
+
+                if signal == "BUY SETUP":
+                    st.success(f"🟢 {signal}")
+
+                elif signal == "EXIT / SELL SETUP":
+                    st.error(f"🔴 {signal}")
+
+                else:
+                    st.warning(f"🟡 {signal}")
+
+                # -------------------------
+                # Metrics
+                # -------------------------
+
+                col1, col2, col3, col4 = st.columns(4)
 
                 col1.metric(
-                    "Current Price",
-                    f"{current_price:.2f}"
+                    "Live Price",
+                    f"{result['price']:.2f}"
                 )
 
                 col2.metric(
-                    "RSI",
-                    f"{rsi:.2f}"
+                    "Setup Score",
+                    f"{result['score']}/100"
                 )
 
                 col3.metric(
-                    "Signal",
-                    signal
+                    "RSI",
+                    f"{result['rsi']:.1f}"
                 )
 
-                st.subheader("Price History")
+                col4.metric(
+                    "Trend",
+                    result["trend"]
+                )
+
+                # -------------------------
+                # Trading levels
+                # -------------------------
+
+                st.subheader("Trading Levels")
+
+                c1, c2, c3, c4 = st.columns(4)
+
+                c1.metric(
+                    "Entry",
+                    f"{result['entry']:.2f}"
+                )
+
+                c2.metric(
+                    "Stop Loss",
+                    f"{result['stop_loss']:.2f}"
+                )
+
+                c3.metric(
+                    "Target 1",
+                    f"{result['target1']:.2f}"
+                )
+
+                c4.metric(
+                    "Target 2",
+                    f"{result['target2']:.2f}"
+                )
+
+                # -------------------------
+                # Market conditions
+                # -------------------------
+
+                st.subheader("Market Conditions")
+
+                st.write(
+                    f"**Trend:** {result['trend']}"
+                )
+
+                st.write(
+                    f"**Volume strength:** "
+                    f"{result['volume_ratio']:.2f}× average"
+                )
+
+                # -------------------------
+                # Why the signal happened
+                # -------------------------
+
+                st.subheader("Why this signal?")
+
+                for reason in result["reasons"]:
+                    st.write(f"• {reason}")
+
+                # -------------------------
+                # Price chart
+                # -------------------------
+
+                st.subheader("Price")
 
                 st.line_chart(
                     data["Close"]
                 )
 
+                # -------------------------
+                # Indicator chart
+                # -------------------------
+
                 st.subheader("Moving Averages")
 
-                chart_data = data[
+                chart = data[
                     ["Close", "SMA_20", "SMA_50"]
                 ].dropna()
 
-                st.line_chart(chart_data)
+                st.line_chart(chart)
 
-                st.subheader("Analysis")
-
-                if signal == "BUY":
-                    st.success(
-                        "🟢 BUY signal generated by the model."
-                    )
-
-                elif signal == "SELL":
-                    st.error(
-                        "🔴 SELL signal generated by the model."
-                    )
-
-                else:
-                    st.warning(
-                        "🟡 HOLD signal generated by the model."
-                    )
+                # -------------------------
+                # Disclaimer
+                # -------------------------
 
                 st.caption(
-                    "Model-generated signal for research purposes. "
-                    "It is not a guarantee of future returns."
+                    "This is an analytical research tool, "
+                    "not a guarantee of future market returns."
                 )
