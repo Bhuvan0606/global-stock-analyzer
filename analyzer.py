@@ -40,9 +40,9 @@ def get_stock_data(ticker, period="30d", interval="15m"):
         return data
 
     except Exception as e:
-        print("Market data error:", repr(e))
-        return None
-
+    raise RuntimeError(
+        f"Market data failed for {ticker}: {type(e).__name__}: {e}"
+    )
 
 def calculate_indicators(data):
 
