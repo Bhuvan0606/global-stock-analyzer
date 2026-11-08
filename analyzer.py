@@ -3,6 +3,7 @@ import pandas as pd
 
 
 def get_stock_data(ticker):
+
     data = yf.download(
         ticker,
         period="1y",
@@ -13,23 +14,33 @@ def get_stock_data(ticker):
     if data.empty:
         return None
 
-    # Handle yfinance MultiIndex columns
+    # Convert yfinance data to a simple table
     if isinstance(data.columns, pd.MultiIndex):
-        data = data.xs(ticker, axis=1, level=1)
+        data = data.iloc[:, data.columns.get_level_values(1) == ticker]
+        data.columns = data.columns.get_level_values(0)
 
     return data
 
 
 def calculate_indicators(data):
-    close = data["Close"].astype(float)
+
+    close = data["Close"]
+
+    # Make absolutely sure Close is one-dimensional
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+
+    close = pd.Series(close, index=data.index, dtype=float)
+
+    data["Close"] = close
 
     data["SMA_20"] = close.rolling(20).mean()
     data["SMA_50"] = close.rolling(50).mean()
 
     delta = close.diff()
 
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0)
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
     avg_gain = gain.rolling(14).mean()
     avg_loss = loss.rolling(14).mean()
@@ -42,6 +53,7 @@ def calculate_indicators(data):
 
 
 def get_signal(data):
+
     latest = data.iloc[-1]
 
     close = float(latest["Close"])
@@ -68,7 +80,9 @@ def get_signal(data):
 
     if score >= 2:
         return "BUY"
+
     elif score <= -2:
         return "SELL"
+
     else:
         return "HOLD"
