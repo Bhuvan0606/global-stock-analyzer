@@ -3,10 +3,19 @@ import pandas as pd
 
 
 def get_stock_data(ticker):
-    data = yf.download(ticker, period="1y", progress=False)
+    data = yf.download(
+        ticker,
+        period="1y",
+        progress=False,
+        auto_adjust=False
+    )
 
     if data.empty:
         return None
+
+    # Handle yfinance MultiIndex columns
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
 
     return data
 
@@ -26,6 +35,7 @@ def calculate_indicators(data):
     avg_loss = loss.rolling(14).mean()
 
     rs = avg_gain / avg_loss
+
     data["RSI"] = 100 - (100 / (1 + rs))
 
     return data
@@ -34,21 +44,26 @@ def calculate_indicators(data):
 def get_signal(data):
     latest = data.iloc[-1]
 
+    close = float(latest["Close"])
+    sma20 = float(latest["SMA_20"])
+    sma50 = float(latest["SMA_50"])
+    rsi = float(latest["RSI"])
+
     score = 0
 
-    if latest["Close"] > latest["SMA_20"]:
+    if close > sma20:
         score += 1
     else:
         score -= 1
 
-    if latest["Close"] > latest["SMA_50"]:
+    if close > sma50:
         score += 1
     else:
         score -= 1
 
-    if latest["RSI"] < 30:
+    if rsi < 30:
         score += 2
-    elif latest["RSI"] > 70:
+    elif rsi > 70:
         score -= 2
 
     if score >= 2:
