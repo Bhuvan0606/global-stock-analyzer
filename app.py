@@ -2,10 +2,13 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import json
 import os
 from datetime import datetime
 
+
+# =====================================================
+# PAGE
+# =====================================================
 
 st.set_page_config(
     page_title="Global Stock Analyzer",
@@ -14,15 +17,15 @@ st.set_page_config(
 )
 
 st.title("🌍 Global Stock Analyzer")
-st.caption("Scanner + confirmation engine + signal history v11")
+st.caption("Signal scanner + confirmation + performance tracking v12")
 
-
-# =====================================================
-# SIGNAL HISTORY FILE
-# =====================================================
 
 HISTORY_FILE = "signal_history.csv"
 
+
+# =====================================================
+# HISTORY
+# =====================================================
 
 def load_history():
 
@@ -32,32 +35,49 @@ def load_history():
             return pd.read_csv(
                 HISTORY_FILE
             )
+
         except Exception:
             pass
 
-    return pd.DataFrame(
-        columns=[
-            "Time",
-            "Symbol",
-            "Interval",
-            "Action",
-            "Setup",
-            "Confirmation",
-            "Price",
-            "RSI",
-            "Trend",
-            "Confidence",
-            "Bullish",
-            "Bearish"
-        ]
-    )
+    return pd.DataFrame(columns=[
+        "ID",
+        "Time",
+        "Symbol",
+        "Interval",
+        "Action",
+        "Setup",
+        "Confirmation",
+        "Entry",
+        "Stop",
+        "Target1",
+        "Target2",
+        "RSI",
+        "Trend",
+        "Confidence",
+        "Bullish",
+        "Bearish",
+        "Status",
+        "CurrentPrice",
+        "ReturnPct",
+        "TargetHit",
+        "StopHit"
+    ])
 
 
-def save_signal(symbol, interval, result):
+def save_signal(
+    symbol,
+    interval,
+    result
+):
 
     history = load_history()
 
-    new_row = pd.DataFrame([{
+    new_id = int(
+        len(history) + 1
+    )
+
+    row = pd.DataFrame([{
+        "ID": new_id,
         "Time": datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         ),
@@ -66,18 +86,26 @@ def save_signal(symbol, interval, result):
         "Action": result["action"],
         "Setup": result["setup"],
         "Confirmation": result["confirmation"],
-        "Price": result["price"],
+        "Entry": result["price"],
+        "Stop": result["stop"],
+        "Target1": result["target1"],
+        "Target2": result["target2"],
         "RSI": result["rsi"],
         "Trend": result["trend"],
         "Confidence": result["confidence"],
         "Bullish": result["bullish_pct"],
-        "Bearish": result["bearish_pct"]
+        "Bearish": result["bearish_pct"],
+        "Status": "OPEN",
+        "CurrentPrice": result["price"],
+        "ReturnPct": 0.0,
+        "TargetHit": "NO",
+        "StopHit": "NO"
     }])
 
     history = pd.concat(
         [
             history,
-            new_row
+            row
         ],
         ignore_index=True
     )
@@ -89,10 +117,13 @@ def save_signal(symbol, interval, result):
 
 
 # =====================================================
-# DATA
+# MARKET DATA
 # =====================================================
 
-def get_data(symbol, interval):
+def get_data(
+    symbol,
+    interval
+):
 
     periods = {
         "5m": "7d",
@@ -191,7 +222,10 @@ def analyze(data):
         np.nan
     )
 
-    rs = avg_gain / avg_loss
+    rs = (
+        avg_gain /
+        avg_loss
+    )
 
     data["RSI"] = (
         100 -
@@ -273,9 +307,9 @@ def analyze(data):
         x["Resistance"]
     )
 
-    # =================================================
+    # -----------------------------
     # TREND
-    # =================================================
+    # -----------------------------
 
     bullish_trend = (
         price > sma20
@@ -288,52 +322,60 @@ def analyze(data):
     )
 
     if bullish_trend:
+
         trend = "BULLISH"
 
     elif bearish_trend:
+
         trend = "BEARISH"
 
     else:
+
         trend = "MIXED"
 
-    # =================================================
+    # -----------------------------
     # MOMENTUM
-    # =================================================
+    # -----------------------------
 
     rsi_rising = (
         rsi > rsi_prev
     )
 
     if rsi < 30:
+
         momentum = "OVERSOLD"
 
     elif rsi < 40:
+
         momentum = "WEAK"
 
     elif rsi <= 65:
+
         momentum = "HEALTHY"
 
     elif rsi <= 70:
+
         momentum = "STRONG"
 
     else:
+
         momentum = "OVERBOUGHT"
 
-    # =================================================
+    # -----------------------------
     # PRICE LOCATION
-    # =================================================
+    # -----------------------------
 
     price_range = (
-        resistance - support
+        resistance -
+        support
     )
 
     if price_range > 0:
 
         position = (
-            (price - support)
-            /
-            price_range
-        )
+            price -
+            support
+        ) / price_range
 
     else:
 
@@ -351,44 +393,59 @@ def analyze(data):
         price < support
     )
 
-    # =================================================
-    # BIAS SCORE
-    # =================================================
+    # -----------------------------
+    # BIAS
+    # -----------------------------
 
     bullish_score = 0
     bearish_score = 0
 
     if price > sma20:
+
         bullish_score += 20
+
     else:
+
         bearish_score += 20
 
     if sma20 > sma50:
+
         bullish_score += 20
+
     else:
+
         bearish_score += 20
 
     if rsi_rising:
+
         bullish_score += 10
+
     else:
+
         bearish_score += 10
 
     if rsi < 40:
+
         bearish_score += 10
 
     if 45 <= rsi <= 65:
+
         bullish_score += 10
 
     if volume >= 1.2:
+
         bullish_score += 10
 
     if near_support:
+
         bullish_score += 5
 
     if near_resistance:
+
         bearish_score += 5
 
     if support_broken:
+
         bearish_score += 20
 
     total = (
@@ -415,14 +472,16 @@ def analyze(data):
         bullish_pct = 50
         bearish_pct = 50
 
-    # =================================================
+    # -----------------------------
     # DECISION
-    # =================================================
+    # -----------------------------
 
     if support_broken:
 
         setup = "SUPPORT BREAKDOWN"
+
         confirmation = "CONFIRMED"
+
         action = "EXIT / AVOID"
 
     elif (
@@ -433,7 +492,9 @@ def analyze(data):
     ):
 
         setup = "BULLISH CONTINUATION"
+
         confirmation = "CONFIRMED"
+
         action = "BUY SETUP"
 
     elif (
@@ -443,24 +504,30 @@ def analyze(data):
     ):
 
         setup = "POTENTIAL REVERSAL"
+
         confirmation = "NOT CONFIRMED"
+
         action = "WATCH"
 
     elif bearish_trend:
 
         setup = "BEARISH CONTINUATION"
+
         confirmation = "PARTIALLY CONFIRMED"
+
         action = "AVOID / WAIT"
 
     else:
 
         setup = "MIXED MARKET"
+
         confirmation = "NOT CONFIRMED"
+
         action = "WAIT"
 
-    # =================================================
+    # -----------------------------
     # CONFIDENCE
-    # =================================================
+    # -----------------------------
 
     confidence = int(
         min(
@@ -473,9 +540,9 @@ def analyze(data):
         )
     )
 
-    # =================================================
+    # -----------------------------
     # LEVELS
-    # =================================================
+    # -----------------------------
 
     if action in [
         "BUY SETUP",
@@ -487,7 +554,8 @@ def analyze(data):
         )
 
         risk = (
-            price - stop
+            price -
+            stop
         )
 
         target1 = (
@@ -508,37 +576,6 @@ def analyze(data):
 
         target2 = resistance
 
-    # =================================================
-    # TRIGGER
-    # =================================================
-
-    if action == "BUY SETUP":
-
-        trigger = (
-            "Bullish trend, momentum and volume are aligned."
-        )
-
-    elif action == "WATCH":
-
-        trigger = (
-            f"Watch for price to reclaim "
-            f"{sma20:.2f} with improving RSI."
-        )
-
-    elif action == "EXIT / AVOID":
-
-        trigger = (
-            f"Price must recover above "
-            f"{support:.2f} to weaken the breakdown."
-        )
-
-    else:
-
-        trigger = (
-            f"Wait for clearer direction "
-            f"around {sma20:.2f}."
-        )
-
     return {
         "price": price,
         "trend": trend,
@@ -553,7 +590,6 @@ def analyze(data):
         "confidence": confidence,
         "bullish_pct": bullish_pct,
         "bearish_pct": bearish_pct,
-        "trigger": trigger,
         "stop": stop,
         "target1": target1,
         "target2": target2
@@ -561,18 +597,186 @@ def analyze(data):
 
 
 # =====================================================
+# UPDATE OUTCOMES
+# =====================================================
+
+def update_outcomes():
+
+    history = load_history()
+
+    if history.empty:
+        return history
+
+    for i in range(
+        len(history)
+    ):
+
+        row = history.iloc[i]
+
+        if row["Status"] == "CLOSED":
+            continue
+
+        symbol = row["Symbol"]
+        interval = row["Interval"]
+
+        data = get_data(
+            symbol,
+            interval
+        )
+
+        if data is None:
+            continue
+
+        current_price = float(
+            data["Close"].iloc[-1]
+        )
+
+        entry = float(
+            row["Entry"]
+        )
+
+        stop = float(
+            row["Stop"]
+        )
+
+        target1 = float(
+            row["Target1"]
+        )
+
+        target2 = float(
+            row["Target2"]
+        )
+
+        action = row["Action"]
+
+        # BUY / WATCH
+        if action in [
+            "BUY SETUP",
+            "WATCH"
+        ]:
+
+            return_pct = (
+                (
+                    current_price -
+                    entry
+                )
+                /
+                entry
+                *
+                100
+            )
+
+            target_hit = (
+                "YES"
+                if current_price >= target1
+                else "NO"
+            )
+
+            stop_hit = (
+                "YES"
+                if current_price <= stop
+                else "NO"
+            )
+
+        else:
+
+            return_pct = (
+                (
+                    entry -
+                    current_price
+                )
+                /
+                entry
+                *
+                100
+            )
+
+            target_hit = (
+                "YES"
+                if current_price <= target2
+                else "NO"
+            )
+
+            stop_hit = (
+                "YES"
+                if current_price >= stop
+                else "NO"
+            )
+
+        history.at[
+            i,
+            "CurrentPrice"
+        ] = current_price
+
+        history.at[
+            i,
+            "ReturnPct"
+        ] = round(
+            return_pct,
+            2
+        )
+
+        history.at[
+            i,
+            "TargetHit"
+        ] = target_hit
+
+        history.at[
+            i,
+            "StopHit"
+        ] = stop_hit
+
+        if target_hit == "YES":
+
+            history.at[
+                i,
+                "Status"
+            ] = "TARGET HIT"
+
+        elif stop_hit == "YES":
+
+            history.at[
+                i,
+                "Status"
+            ] = "STOP HIT"
+
+        else:
+
+            history.at[
+                i,
+                "Status"
+            ] = "OPEN"
+
+    history.to_csv(
+        HISTORY_FILE,
+        index=False
+    )
+
+    return history
+
+
+# =====================================================
 # SCANNER
 # =====================================================
 
-def scan_market(symbols, interval):
+def scan_market(
+    symbols,
+    interval
+):
 
     rows = []
 
-    progress = st.progress(0)
+    progress = st.progress(
+        0
+    )
 
-    total = len(symbols)
+    total = len(
+        symbols
+    )
 
-    for i, symbol in enumerate(symbols):
+    for i, symbol in enumerate(
+        symbols
+    ):
 
         data = get_data(
             symbol,
@@ -633,7 +837,7 @@ tab1, tab2, tab3 = st.tabs(
     [
         "🔎 Single Stock",
         "🌍 Global Scanner",
-        "📊 Signal History"
+        "📊 Performance"
     ]
 )
 
@@ -670,7 +874,7 @@ with tab1:
         if not symbol:
 
             st.warning(
-                "Enter a stock symbol first."
+                "Enter a stock symbol."
             )
 
             st.stop()
@@ -716,10 +920,6 @@ with tab1:
             result
         )
 
-        st.success(
-            f"Analysis completed for {symbol}"
-        )
-
         if result["action"] == "BUY SETUP":
 
             st.success(
@@ -743,10 +943,6 @@ with tab1:
             st.info(
                 f"⚪ {result['action']}"
             )
-
-        st.subheader(
-            "Setup Decision"
-        )
 
         a, b, c = st.columns(3)
 
@@ -792,36 +988,6 @@ with tab1:
         )
 
         st.subheader(
-            "Market Bias"
-        )
-
-        a, b = st.columns(2)
-
-        a.metric(
-            "Bullish",
-            f"{result['bullish_pct']:.0f}%"
-        )
-
-        b.metric(
-            "Bearish",
-            f"{result['bearish_pct']:.0f}%"
-        )
-
-        st.subheader(
-            "Action Plan"
-        )
-
-        st.write(
-            f"**Current action:** "
-            f"{result['action']}"
-        )
-
-        st.write(
-            f"**Trigger:** "
-            f"{result['trigger']}"
-        )
-
-        st.subheader(
             "Trading Levels"
         )
 
@@ -833,7 +999,7 @@ with tab1:
         )
 
         b.metric(
-            "Stop Loss",
+            "Stop",
             f"{result['stop']:.2f}"
         )
 
@@ -845,10 +1011,6 @@ with tab1:
         d.metric(
             "Target 2",
             f"{result['target2']:.2f}"
-        )
-
-        st.subheader(
-            "Price Chart"
         )
 
         st.line_chart(
@@ -869,8 +1031,9 @@ with tab2:
     symbols_text = st.text_area(
         "Symbols",
         value=(
-            "AAPL, MSFT, NVDA, AMZN, "
-            "META, TSLA, GOOGL, AMD, "
+            "AAPL, MSFT, NVDA, "
+            "AMZN, META, TSLA, "
+            "GOOGL, AMD, "
             "RELIANCE.NS, TCS.NS, "
             "INFY.NS, HDFCBANK.NS"
         ),
@@ -886,7 +1049,7 @@ with tab2:
             "1h"
         ],
         index=1,
-        key="scanner_interval"
+        key="scan_interval"
     )
 
     if st.button(
@@ -902,7 +1065,7 @@ with tab2:
         if not symbols:
 
             st.warning(
-                "Enter at least one symbol."
+                "Enter symbols."
             )
 
             st.stop()
@@ -924,10 +1087,6 @@ with tab2:
 
             st.stop()
 
-        st.session_state[
-            "latest_scan"
-        ] = results
-
         st.subheader(
             "Scanner Results"
         )
@@ -938,46 +1097,21 @@ with tab2:
             hide_index=True
         )
 
-        buys = len(
-            results[
-                results["Action"] ==
-                "BUY SETUP"
-            ]
-        )
-
-        watches = len(
-            results[
-                results["Action"] ==
-                "WATCH"
-            ]
-        )
-
-        a, b, c = st.columns(3)
-
-        a.metric(
-            "BUY SETUPS",
-            buys
-        )
-
-        b.metric(
-            "WATCH",
-            watches
-        )
-
-        c.metric(
-            "Markets Scanned",
-            len(results)
+        st.info(
+            "Run the scanner again later to "
+            "generate new observations for the "
+            "performance tracker."
         )
 
 
 # =====================================================
-# SIGNAL HISTORY
+# PERFORMANCE
 # =====================================================
 
 with tab3:
 
     st.subheader(
-        "📊 Signal History"
+        "📊 Signal Performance"
     )
 
     history = load_history()
@@ -990,53 +1124,35 @@ with tab3:
 
     else:
 
-        st.metric(
-            "Signals Recorded",
-            len(history)
+        if st.button(
+            "🔄 Update Signal Outcomes"
+        ):
+
+            with st.spinner(
+                "Checking current prices..."
+            ):
+
+                history = update_outcomes()
+
+        st.write(
+            "Signals are evaluated against "
+            "their entry, target and stop levels."
         )
 
-        st.dataframe(
-            history,
-            use_container_width=True,
-            hide_index=True
+        open_count = len(
+            history[
+                history["Status"] ==
+                "OPEN"
+            ]
         )
 
-        st.subheader(
-            "Signal Distribution"
+        target_count = len(
+            history[
+                history["Status"] ==
+                "TARGET HIT"
+            ]
         )
 
-        counts = (
-            history["Action"]
-            .value_counts()
-        )
-
-        st.bar_chart(
-            counts
-        )
-
-        st.subheader(
-            "Recent Signals"
-        )
-
-        st.dataframe(
-            history.tail(20),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        csv = history.to_csv(
-            index=False
-        )
-
-        st.download_button(
-            "⬇️ Download Signal History",
-            csv,
-            "signal_history.csv",
-            "text/csv"
-        )
-
-
-st.caption(
-    "Research tool only. "
-    "Signals do not guarantee future returns."
-    )
+        stop_count = len(
+            history[
+              
