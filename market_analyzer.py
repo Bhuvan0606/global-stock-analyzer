@@ -25,10 +25,14 @@ def get_stock_data(ticker, period="30d", interval="15m"):
             data.columns = data.columns.get_level_values(0)
 
         if "Close" not in data.columns:
-            raise RuntimeError("Yahoo Finance did not return Close data.")
+            raise RuntimeError(
+                "Yahoo Finance did not return Close data."
+            )
 
         if "Volume" not in data.columns:
-            raise RuntimeError("Yahoo Finance did not return Volume data.")
+            raise RuntimeError(
+                "Yahoo Finance did not return Volume data."
+            )
 
         data["Close"] = pd.to_numeric(
             data["Close"],
@@ -40,7 +44,9 @@ def get_stock_data(ticker, period="30d", interval="15m"):
             errors="coerce"
         )
 
-        data = data.dropna(subset=["Close"])
+        data = data.dropna(
+            subset=["Close"]
+        )
 
         if data.empty:
             return None
@@ -71,8 +77,13 @@ def calculate_indicators(data):
 
     delta = close.diff()
 
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+    gain = delta.clip(
+        lower=0
+    )
+
+    loss = -delta.clip(
+        upper=0
+    )
 
     avg_gain = gain.rolling(
         window=14,
@@ -84,12 +95,18 @@ def calculate_indicators(data):
         min_periods=14
     ).mean()
 
-    avg_loss = avg_loss.replace(0, np.nan)
+    avg_loss = avg_loss.replace(
+        0,
+        np.nan
+    )
 
-    rs = avg_gain / avg_loss
+    relative_strength = (
+        avg_gain / avg_loss
+    )
 
-    data["RSI"] = 100 - (
-        100 / (1 + rs)
+    data["RSI"] = (
+        100 -
+        (100 / (1 + relative_strength))
     )
 
     data["Volume_SMA_20"] = (
@@ -123,7 +140,9 @@ def get_signal(data):
         return {
             "signal": "WAIT",
             "score": 0,
-            "price": float(data["Close"].iloc[-1]),
+            "price": float(
+                data["Close"].iloc[-1]
+            ),
             "rsi": 0,
             "trend": "UNKNOWN",
             "volume_ratio": 0,
@@ -138,7 +157,89 @@ def get_signal(data):
 
     latest = valid.iloc[-1]
 
-    close = float(latest["Close"])
-    sma20 = float(latest["SMA_20"])
-    sma50 = float(latest["SMA_50"])
-    r
+    close = float(
+        latest["Close"]
+    )
+
+    sma20 = float(
+        latest["SMA_20"]
+    )
+
+    sma50 = float(
+        latest["SMA_50"]
+    )
+
+    rsi = float(
+        latest["RSI"]
+    )
+
+    volume_ratio = float(
+        latest["Volume_Ratio"]
+    )
+
+    score = 50
+    reasons = []
+
+    if close > sma20:
+        score += 10
+        reasons.append(
+            "Price is above the 20-period average."
+        )
+    else:
+        score -= 10
+        reasons.append(
+            "Price is below the 20-period average."
+        )
+
+    if sma20 > sma50:
+        score += 10
+        reasons.append(
+            "Short-term trend is above the medium-term trend."
+        )
+    else:
+        score -= 10
+        reasons.append(
+            "Short-term trend is below the medium-term trend."
+        )
+
+    if 50 <= rsi <= 70:
+        score += 10
+        reasons.append(
+            "Momentum is positive."
+        )
+
+    elif rsi < 30:
+        score += 5
+        reasons.append(
+            "RSI indicates potentially oversold conditions."
+        )
+
+    elif rsi > 70:
+        score -= 10
+        reasons.append(
+            "RSI indicates potentially overbought conditions."
+        )
+
+    else:
+        reasons.append(
+            "Momentum is currently neutral."
+        )
+
+    if volume_ratio >= 1.2:
+        score += 10
+        reasons.append(
+            "Volume is above its recent average."
+        )
+
+    elif volume_ratio < 0.8:
+        score -= 5
+        reasons.append(
+            "Volume is below its recent average."
+        )
+
+    else:
+        reasons.append(
+            "Volume is close to its recent average."
+        )
+
+    score
