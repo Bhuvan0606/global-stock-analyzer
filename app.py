@@ -6,10 +6,6 @@ import os
 from datetime import datetime
 
 
-# =====================================================
-# PAGE
-# =====================================================
-
 st.set_page_config(
     page_title="Global Stock Analyzer",
     page_icon="📈",
@@ -17,8 +13,7 @@ st.set_page_config(
 )
 
 st.title("🌍 Global Stock Analyzer")
-st.caption("Signal scanner + confirmation + performance tracking v12")
-
+st.caption("Scanner + signal tracking v12.1")
 
 HISTORY_FILE = "signal_history.csv"
 
@@ -28,85 +23,54 @@ HISTORY_FILE = "signal_history.csv"
 # =====================================================
 
 def load_history():
-
     if os.path.exists(HISTORY_FILE):
-
         try:
-            return pd.read_csv(
-                HISTORY_FILE
-            )
-
-        except Exception:
+            return pd.read_csv(HISTORY_FILE)
+        except:
             pass
 
     return pd.DataFrame(columns=[
-        "ID",
-        "Time",
-        "Symbol",
-        "Interval",
-        "Action",
-        "Setup",
-        "Confirmation",
-        "Entry",
-        "Stop",
-        "Target1",
-        "Target2",
-        "RSI",
-        "Trend",
-        "Confidence",
-        "Bullish",
-        "Bearish",
-        "Status",
-        "CurrentPrice",
-        "ReturnPct",
-        "TargetHit",
-        "StopHit"
+        "ID", "Time", "Symbol", "Interval",
+        "Action", "Setup", "Confirmation",
+        "Entry", "Stop", "Target1", "Target2",
+        "RSI", "Trend", "Confidence",
+        "Bullish", "Bearish", "Status",
+        "CurrentPrice", "ReturnPct",
+        "TargetHit", "StopHit"
     ])
 
 
-def save_signal(
-    symbol,
-    interval,
-    result
-):
-
+def save_signal(symbol, interval, r):
     history = load_history()
 
-    new_id = int(
-        len(history) + 1
-    )
-
-    row = pd.DataFrame([{
-        "ID": new_id,
+    row = {
+        "ID": len(history) + 1,
         "Time": datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         ),
         "Symbol": symbol,
         "Interval": interval,
-        "Action": result["action"],
-        "Setup": result["setup"],
-        "Confirmation": result["confirmation"],
-        "Entry": result["price"],
-        "Stop": result["stop"],
-        "Target1": result["target1"],
-        "Target2": result["target2"],
-        "RSI": result["rsi"],
-        "Trend": result["trend"],
-        "Confidence": result["confidence"],
-        "Bullish": result["bullish_pct"],
-        "Bearish": result["bearish_pct"],
+        "Action": r["action"],
+        "Setup": r["setup"],
+        "Confirmation": r["confirmation"],
+        "Entry": r["price"],
+        "Stop": r["stop"],
+        "Target1": r["target1"],
+        "Target2": r["target2"],
+        "RSI": r["rsi"],
+        "Trend": r["trend"],
+        "Confidence": r["confidence"],
+        "Bullish": r["bullish_pct"],
+        "Bearish": r["bearish_pct"],
         "Status": "OPEN",
-        "CurrentPrice": result["price"],
+        "CurrentPrice": r["price"],
         "ReturnPct": 0.0,
         "TargetHit": "NO",
         "StopHit": "NO"
-    }])
+    }
 
     history = pd.concat(
-        [
-            history,
-            row
-        ],
+        [history, pd.DataFrame([row])],
         ignore_index=True
     )
 
@@ -117,13 +81,10 @@ def save_signal(
 
 
 # =====================================================
-# MARKET DATA
+# DATA
 # =====================================================
 
-def get_data(
-    symbol,
-    interval
-):
+def get_data(symbol, interval):
 
     periods = {
         "5m": "7d",
@@ -133,7 +94,6 @@ def get_data(
     }
 
     try:
-
         data = yf.download(
             symbol,
             period=periods[interval],
@@ -142,9 +102,7 @@ def get_data(
             progress=False,
             threads=False
         )
-
-    except Exception:
-
+    except:
         return None
 
     if data is None or data.empty:
@@ -154,7 +112,6 @@ def get_data(
         data.columns,
         pd.MultiIndex
     ):
-
         data.columns = (
             data.columns
             .get_level_values(0)
@@ -171,11 +128,9 @@ def get_data(
         x in data.columns
         for x in needed
     ):
-
         return None
 
     for col in needed:
-
         data[col] = pd.to_numeric(
             data[col],
             errors="coerce"
@@ -187,7 +142,7 @@ def get_data(
 
 
 # =====================================================
-# ANALYSIS ENGINE
+# ANALYSIS
 # =====================================================
 
 def analyze(data):
@@ -222,17 +177,11 @@ def analyze(data):
         np.nan
     )
 
-    rs = (
-        avg_gain /
-        avg_loss
-    )
+    rs = avg_gain / avg_loss
 
     data["RSI"] = (
         100 -
-        (
-            100 /
-            (1 + rs)
-        )
+        100 / (1 + rs)
     )
 
     data["RSI_prev"] = (
@@ -240,9 +189,7 @@ def analyze(data):
     )
 
     data["VolumeAvg"] = (
-        data["Volume"]
-        .rolling(20)
-        .mean()
+        data["Volume"].rolling(20).mean()
     )
 
     data["VolumeRatio"] = (
@@ -275,110 +222,57 @@ def analyze(data):
 
     x = valid.iloc[-1]
 
-    price = float(
-        x["Close"]
-    )
-
-    sma20 = float(
-        x["SMA20"]
-    )
-
-    sma50 = float(
-        x["SMA50"]
-    )
-
-    rsi = float(
-        x["RSI"]
-    )
-
-    rsi_prev = float(
-        x["RSI_prev"]
-    )
-
-    volume = float(
-        x["VolumeRatio"]
-    )
-
-    support = float(
-        x["Support"]
-    )
-
-    resistance = float(
-        x["Resistance"]
-    )
-
-    # -----------------------------
-    # TREND
-    # -----------------------------
+    price = float(x["Close"])
+    sma20 = float(x["SMA20"])
+    sma50 = float(x["SMA50"])
+    rsi = float(x["RSI"])
+    rsi_prev = float(x["RSI_prev"])
+    volume = float(x["VolumeRatio"])
+    support = float(x["Support"])
+    resistance = float(x["Resistance"])
 
     bullish_trend = (
-        price > sma20
-        and sma20 > sma50
+        price > sma20 and
+        sma20 > sma50
     )
 
     bearish_trend = (
-        price < sma20
-        and sma20 < sma50
+        price < sma20 and
+        sma20 < sma50
     )
 
     if bullish_trend:
-
         trend = "BULLISH"
-
     elif bearish_trend:
-
         trend = "BEARISH"
-
     else:
-
         trend = "MIXED"
-
-    # -----------------------------
-    # MOMENTUM
-    # -----------------------------
 
     rsi_rising = (
         rsi > rsi_prev
     )
 
     if rsi < 30:
-
         momentum = "OVERSOLD"
-
     elif rsi < 40:
-
         momentum = "WEAK"
-
     elif rsi <= 65:
-
         momentum = "HEALTHY"
-
     elif rsi <= 70:
-
         momentum = "STRONG"
-
     else:
-
         momentum = "OVERBOUGHT"
 
-    # -----------------------------
-    # PRICE LOCATION
-    # -----------------------------
-
     price_range = (
-        resistance -
-        support
+        resistance - support
     )
 
     if price_range > 0:
-
         position = (
-            price -
-            support
-        ) / price_range
-
+            (price - support) /
+            price_range
+        )
     else:
-
         position = 0.5
 
     near_support = (
@@ -394,81 +288,55 @@ def analyze(data):
     )
 
     # -----------------------------
-    # BIAS
+    # SCORE
     # -----------------------------
 
-    bullish_score = 0
-    bearish_score = 0
+    bullish = 0
+    bearish = 0
 
     if price > sma20:
-
-        bullish_score += 20
-
+        bullish += 20
     else:
-
-        bearish_score += 20
+        bearish += 20
 
     if sma20 > sma50:
-
-        bullish_score += 20
-
+        bullish += 20
     else:
-
-        bearish_score += 20
+        bearish += 20
 
     if rsi_rising:
-
-        bullish_score += 10
-
+        bullish += 10
     else:
-
-        bearish_score += 10
+        bearish += 10
 
     if rsi < 40:
-
-        bearish_score += 10
+        bearish += 10
 
     if 45 <= rsi <= 65:
-
-        bullish_score += 10
+        bullish += 10
 
     if volume >= 1.2:
-
-        bullish_score += 10
+        bullish += 10
 
     if near_support:
-
-        bullish_score += 5
+        bullish += 5
 
     if near_resistance:
-
-        bearish_score += 5
+        bearish += 5
 
     if support_broken:
+        bearish += 20
 
-        bearish_score += 20
-
-    total = (
-        bullish_score +
-        bearish_score
-    )
+    total = bullish + bearish
 
     if total:
-
         bullish_pct = (
-            bullish_score /
-            total *
-            100
+            bullish / total * 100
         )
-
         bearish_pct = (
-            bearish_score /
-            total *
-            100
+            bearish / total * 100
         )
-
     else:
-
         bullish_pct = 50
         bearish_pct = 50
 
@@ -479,9 +347,7 @@ def analyze(data):
     if support_broken:
 
         setup = "SUPPORT BREAKDOWN"
-
         confirmation = "CONFIRMED"
-
         action = "EXIT / AVOID"
 
     elif (
@@ -492,9 +358,7 @@ def analyze(data):
     ):
 
         setup = "BULLISH CONTINUATION"
-
         confirmation = "CONFIRMED"
-
         action = "BUY SETUP"
 
     elif (
@@ -504,30 +368,20 @@ def analyze(data):
     ):
 
         setup = "POTENTIAL REVERSAL"
-
         confirmation = "NOT CONFIRMED"
-
         action = "WATCH"
 
     elif bearish_trend:
 
         setup = "BEARISH CONTINUATION"
-
         confirmation = "PARTIALLY CONFIRMED"
-
         action = "AVOID / WAIT"
 
     else:
 
         setup = "MIXED MARKET"
-
         confirmation = "NOT CONFIRMED"
-
         action = "WAIT"
-
-    # -----------------------------
-    # CONFIDENCE
-    # -----------------------------
 
     confidence = int(
         min(
@@ -554,26 +408,21 @@ def analyze(data):
         )
 
         risk = (
-            price -
-            stop
+            price - stop
         )
 
         target1 = (
-            price +
-            risk * 1.5
+            price + risk * 1.5
         )
 
         target2 = (
-            price +
-            risk * 2.5
+            price + risk * 2.5
         )
 
     else:
 
         stop = support
-
         target1 = price
-
         target2 = resistance
 
     return {
@@ -607,17 +456,20 @@ def update_outcomes():
     if history.empty:
         return history
 
-    for i in range(
-        len(history)
-    ):
+    for i in range(len(history)):
 
-        row = history.iloc[i]
-
-        if row["Status"] == "CLOSED":
+        if history.loc[i, "Status"] != "OPEN":
             continue
 
-        symbol = row["Symbol"]
-        interval = row["Interval"]
+        symbol = history.loc[
+            i,
+            "Symbol"
+        ]
+
+        interval = history.loc[
+            i,
+            "Interval"
+        ]
 
         data = get_data(
             symbol,
@@ -627,88 +479,77 @@ def update_outcomes():
         if data is None:
             continue
 
-        current_price = float(
+        current = float(
             data["Close"].iloc[-1]
         )
 
         entry = float(
-            row["Entry"]
+            history.loc[
+                i,
+                "Entry"
+            ]
         )
 
         stop = float(
-            row["Stop"]
+            history.loc[
+                i,
+                "Stop"
+            ]
         )
 
         target1 = float(
-            row["Target1"]
+            history.loc[
+                i,
+                "Target1"
+            ]
         )
 
-        target2 = float(
-            row["Target2"]
-        )
+        action = history.loc[
+            i,
+            "Action"
+        ]
 
-        action = row["Action"]
-
-        # BUY / WATCH
         if action in [
             "BUY SETUP",
             "WATCH"
         ]:
 
             return_pct = (
-                (
-                    current_price -
-                    entry
-                )
-                /
-                entry
-                *
-                100
+                (current - entry)
+                / entry
+                * 100
             )
 
             target_hit = (
-                "YES"
-                if current_price >= target1
-                else "NO"
+                current >= target1
             )
 
             stop_hit = (
-                "YES"
-                if current_price <= stop
-                else "NO"
+                current <= stop
             )
 
         else:
 
             return_pct = (
-                (
-                    entry -
-                    current_price
-                )
-                /
-                entry
-                *
-                100
+                (entry - current)
+                / entry
+                * 100
             )
 
             target_hit = (
-                "YES"
-                if current_price <= target2
-                else "NO"
+                current <= target1
             )
 
             stop_hit = (
-                "YES"
-                if current_price >= stop
-                else "NO"
+                current >= stop
             )
 
-        history.at[
+        history.loc[
             i,
             "CurrentPrice"
-        ] = current_price
+        ] = current
 
-        history.at[
+        history.loc[
             i,
             "ReturnPct"
         ] = round(
@@ -716,36 +557,29 @@ def update_outcomes():
             2
         )
 
-        history.at[
-            i,
-            "TargetHit"
-        ] = target_hit
+        if target_hit:
 
-        history.at[
-            i,
-            "StopHit"
-        ] = stop_hit
+            history.loc[
+                i,
+                "TargetHit"
+            ] = "YES"
 
-        if target_hit == "YES":
-
-            history.at[
+            history.loc[
                 i,
                 "Status"
             ] = "TARGET HIT"
 
-        elif stop_hit == "YES":
+        elif stop_hit:
 
-            history.at[
+            history.loc[
+                i,
+                "StopHit"
+            ] = "YES"
+
+            history.loc[
                 i,
                 "Status"
             ] = "STOP HIT"
-
-        else:
-
-            history.at[
-                i,
-                "Status"
-            ] = "OPEN"
 
     history.to_csv(
         HISTORY_FILE,
@@ -766,13 +600,9 @@ def scan_market(
 
     rows = []
 
-    progress = st.progress(
-        0
-    )
+    progress = st.progress(0)
 
-    total = len(
-        symbols
-    )
+    total = len(symbols)
 
     for i, symbol in enumerate(
         symbols
@@ -833,13 +663,11 @@ def scan_market(
 # TABS
 # =====================================================
 
-tab1, tab2, tab3 = st.tabs(
-    [
-        "🔎 Single Stock",
-        "🌍 Global Scanner",
-        "📊 Performance"
-    ]
-)
+tab1, tab2, tab3 = st.tabs([
+    "🔎 Single Stock",
+    "🌍 Global Scanner",
+    "📊 Performance"
+])
 
 
 # =====================================================
@@ -920,19 +748,21 @@ with tab1:
             result
         )
 
-        if result["action"] == "BUY SETUP":
+        action = result["action"]
+
+        if action == "BUY SETUP":
 
             st.success(
                 "🟢 BUY SETUP"
             )
 
-        elif result["action"] == "WATCH":
+        elif action == "WATCH":
 
             st.warning(
                 "🟡 WATCH"
             )
 
-        elif result["action"] == "EXIT / AVOID":
+        elif action == "EXIT / AVOID":
 
             st.error(
                 "🔴 EXIT / AVOID"
@@ -941,7 +771,7 @@ with tab1:
         else:
 
             st.info(
-                f"⚪ {result['action']}"
+                f"⚪ {action}"
             )
 
         a, b, c = st.columns(3)
@@ -984,7 +814,23 @@ with tab1:
 
         d.metric(
             "Volume",
-            f"{result['volume']:.2f}×"
+            f"{result['volume']:.2f}x"
+        )
+
+        st.subheader(
+            "Market Bias"
+        )
+
+        a, b = st.columns(2)
+
+        a.metric(
+            "Bullish",
+            f"{result['bullish_pct']:.0f}%"
+        )
+
+        b.metric(
+            "Bearish",
+            f"{result['bearish_pct']:.0f}%"
         )
 
         st.subheader(
@@ -1011,6 +857,10 @@ with tab1:
         d.metric(
             "Target 2",
             f"{result['target2']:.2f}"
+        )
+
+        st.subheader(
+            "Price Chart"
         )
 
         st.line_chart(
@@ -1097,12 +947,6 @@ with tab2:
             hide_index=True
         )
 
-        st.info(
-            "Run the scanner again later to "
-            "generate new observations for the "
-            "performance tracker."
-        )
-
 
 # =====================================================
 # PERFORMANCE
@@ -1134,25 +978,113 @@ with tab3:
 
                 history = update_outcomes()
 
-        st.write(
-            "Signals are evaluated against "
-            "their entry, target and stop levels."
+        returns = pd.to_numeric(
+            history["ReturnPct"],
+            errors="coerce"
         )
 
-        open_count = len(
-            history[
-                history["Status"] ==
-                "OPEN"
-            ]
+        total = len(history)
+
+        target_count = (
+            history["Status"]
+            == "TARGET HIT"
+        ).sum()
+
+        stop_count = (
+            history["Status"]
+            == "STOP HIT"
+        ).sum()
+
+        completed = (
+            target_count +
+            stop_count
         )
 
-        target_count = len(
-            history[
-                history["Status"] ==
-                "TARGET HIT"
-            ]
+        if completed > 0:
+
+            win_rate = (
+                target_count /
+                completed *
+                100
+            )
+
+        else:
+
+            win_rate = 0
+
+        avg_return = (
+            returns.mean()
         )
 
-        stop_count = len(
-            history[
-              
+        a, b, c, d = st.columns(4)
+
+        a.metric(
+            "Total Signals",
+            total
+        )
+
+        b.metric(
+            "Targets Hit",
+            target_count
+        )
+
+        c.metric(
+            "Win Rate",
+            f"{win_rate:.1f}%"
+        )
+
+        d.metric(
+            "Avg Return",
+            f"{avg_return:.2f}%"
+        )
+
+        st.subheader(
+            "Signal History"
+        )
+
+        st.dataframe(
+            history,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.subheader(
+            "Returns"
+        )
+
+        st.bar_chart(
+            returns
+        )
+
+        st.subheader(
+            "Performance by Setup"
+        )
+
+        setup_stats = (
+            history
+            .groupby("Setup")
+            .agg(
+                Signals=("ID", "count"),
+                AvgReturn=("ReturnPct", "mean")
+            )
+            .reset_index()
+        )
+
+        setup_stats["AvgReturn"] = (
+            setup_stats["AvgReturn"]
+            .round(2)
+        )
+
+        st.dataframe(
+            setup_stats,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        csv = history.to_csv(
+            index=False
+        )
+
+        st.download_button(
+            "⬇️ Download Performance Data",
+        
