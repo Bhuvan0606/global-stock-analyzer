@@ -8,9 +8,9 @@ def get_stock_data(ticker, period="60d", interval="15m"):
 
     try:
         data = yf.Ticker(ticker).history(
-            period=period,
-            interval=interval,
-            auto_adjust=False
+    period="30d",
+    interval=interval,
+    auto_adjust=False
         )
 
         if data.empty:
