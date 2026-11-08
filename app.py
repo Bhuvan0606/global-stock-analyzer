@@ -1,10 +1,7 @@
 import streamlit as st
-
-from market_analyzer import (
-    get_stock_data,
-    calculate_indicators,
-    get_signal
-)
+import yfinance as yf
+import pandas as pd
+import numpy as np
 
 
 st.set_page_config(
@@ -17,213 +14,197 @@ st.set_page_config(
 st.title("🌍 Global Stock Analyzer")
 
 st.caption(
-    "Live-market trading setup analyzer v4"
+    "Live-market trading setup analyzer v5"
 )
 
 
-ticker = st.text_input(
-    "Enter stock symbol",
-    placeholder=(
-        "Example: AAPL, MSFT, "
-        "RELIANCE.NS, TCS.NS"
-    )
-)
+# --------------------------------------------------
+# MARKET DATA
+# --------------------------------------------------
 
+def get_market_data(ticker, interval):
 
-interval = st.selectbox(
-    "Market timeframe",
-    [
-        "5m",
-        "15m",
-        "30m",
-        "1h"
-    ],
-    index=1
-)
+    ticker = ticker.strip().upper()
 
-
-if st.button("🔎 Analyze Market"):
-
-    if not ticker:
-        st.warning(
-            "Enter a stock symbol first."
-        )
-        st.stop()
-
-    with st.spinner(
-        "Downloading market data..."
-    ):
-
-        try:
-            data = get_stock_data(
-                ticker.upper(),
-                period="30d",
-                interval=interval
-            )
-
-        except Exception as e:
-            st.error(
-                "Market data request failed."
-            )
-
-            st.code(
-                f"{type(e).__name__}: {e}"
-            )
-
-            st.stop()
-
-    if data is None:
-        st.error(
-            "No market data found. "
-            "Check the stock symbol and try again."
-        )
-        st.stop()
-
-    with st.spinner(
-        "Calculating indicators..."
-    ):
-
-        try:
-            data = calculate_indicators(
-                data
-            )
-
-            result = get_signal(
-                data
-            )
-
-        except Exception as e:
-            st.error(
-                "Analysis failed."
-            )
-
-            st.code(
-                f"{type(e).__name__}: {e}"
-            )
-
-            st.stop()
-
-    st.success(
-        f"Market analysis completed for "
-        f"{ticker.upper()}"
-    )
-
-    signal = result["signal"]
-
-    if signal == "BUY SETUP":
-        st.success(
-            f"🟢 {signal}"
-        )
-
-    elif signal == "EXIT / SELL SETUP":
-        st.error(
-            f"🔴 {signal}"
-        )
-
+    # Yahoo Finance has different intraday data limits.
+    if interval == "5m":
+        period = "7d"
+    elif interval == "15m":
+        period = "30d"
+    elif interval == "30m":
+        period = "60d"
     else:
-        st.warning(
-            f"🟡 {signal}"
+        period = "60d"
+
+    data = yf.download(
+        ticker,
+        period=period,
+        interval=interval,
+        auto_adjust=False,
+        progress=False,
+        threads=False
+    )
+
+    if data is None or data.empty:
+        return None
+
+    data = data.copy()
+
+    # Handle Yahoo Finance MultiIndex columns.
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+
+    required = [
+        "Close",
+        "Volume"
+    ]
+
+    for column in required:
+        if column not in data.columns:
+            raise RuntimeError(
+                f"Yahoo Finance did not return {column} data."
+            )
+
+    data["Close"] = pd.to_numeric(
+        data["Close"],
+        errors="coerce"
+    )
+
+    data["Volume"] = pd.to_numeric(
+        data["Volume"],
+        errors="coerce"
+    )
+
+    data = data.dropna(
+        subset=["Close"]
+    )
+
+    if data.empty:
+        return None
+
+    return data
+
+
+# --------------------------------------------------
+# TECHNICAL INDICATORS
+# --------------------------------------------------
+
+def calculate_indicators(data):
+
+    data = data.copy()
+
+    close = data["Close"].astype(float)
+
+    # Moving averages
+    data["SMA_20"] = (
+        close
+        .rolling(
+            20,
+            min_periods=20
         )
-
-    st.subheader(
-        "Market Overview"
+        .mean()
     )
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric(
-        "Price",
-        f"{result['price']:.2f}"
-    )
-
-    col2.metric(
-        "Setup Score",
-        f"{result['score']}/100"
-    )
-
-    col3.metric(
-        "RSI",
-        f"{result['rsi']:.1f}"
-    )
-
-    col4.metric(
-        "Trend",
-        result["trend"]
-    )
-
-    st.subheader(
-        "Trading Levels"
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Entry",
-        f"{result['entry']:.2f}"
-    )
-
-    c2.metric(
-        "Stop Loss",
-        f"{result['stop_loss']:.2f}"
-    )
-
-    c3.metric(
-        "Target 1",
-        f"{result['target1']:.2f}"
-    )
-
-    c4.metric(
-        "Target 2",
-        f"{result['target2']:.2f}"
-    )
-
-    st.subheader(
-        "Market Conditions"
-    )
-
-    st.write(
-        f"**Trend:** {result['trend']}"
-    )
-
-    st.write(
-        f"**Volume strength:** "
-        f"{result['volume_ratio']:.2f}× average"
-    )
-
-    st.subheader(
-        "Why this signal?"
-    )
-
-    for reason in result["reasons"]:
-        st.write(
-            f"• {reason}"
+    data["SMA_50"] = (
+        close
+        .rolling(
+            50,
+            min_periods=50
         )
-
-    st.subheader(
-        "Price"
+        .mean()
     )
 
-    st.line_chart(
-        data["Close"]
+    # RSI
+    delta = close.diff()
+
+    gains = delta.clip(
+        lower=0
     )
 
-    st.subheader(
-        "Moving Averages"
+    losses = -delta.clip(
+        upper=0
     )
 
-    chart = data[
-        [
-            "Close",
+    average_gain = (
+        gains
+        .rolling(
+            14,
+            min_periods=14
+        )
+        .mean()
+    )
+
+    average_loss = (
+        losses
+        .rolling(
+            14,
+            min_periods=14
+        )
+        .mean()
+    )
+
+    average_loss = average_loss.replace(
+        0,
+        np.nan
+    )
+
+    relative_strength = (
+        average_gain /
+        average_loss
+    )
+
+    data["RSI"] = (
+        100 -
+        (
+            100 /
+            (
+                1 +
+                relative_strength
+            )
+        )
+    )
+
+    # Volume
+    data["Volume_SMA_20"] = (
+        data["Volume"]
+        .rolling(
+            20,
+            min_periods=20
+        )
+        .mean()
+    )
+
+    data["Volume_Ratio"] = (
+        data["Volume"] /
+        data["Volume_SMA_20"]
+    )
+
+    return data
+
+
+# --------------------------------------------------
+# SIGNAL ENGINE
+# --------------------------------------------------
+
+def generate_signal(data):
+
+    valid = data.dropna(
+        subset=[
             "SMA_20",
-            "SMA_50"
+            "SMA_50",
+            "RSI",
+            "Volume_Ratio"
         ]
-    ].dropna()
-
-    st.line_chart(
-        chart
     )
 
-    st.caption(
-        "This is an analytical research tool, "
-        "not a guarantee of future market returns."
-    )
+    if valid.empty:
+
+        return {
+            "signal": "WAIT",
+            "score": 0,
+            "price": float(
+                data["Close"].iloc[-1]
+            ),
+            "rsi": 0,
+            "trend": "UNKNOWN",
+            "volume_ratio":
