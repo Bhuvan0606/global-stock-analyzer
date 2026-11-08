@@ -2,18 +2,16 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from datetime import datetime
 import os
 
-st.set_page_config(
-    page_title="Global Stock Analyzer",
-    page_icon="📈",
-    layout="wide"
-)
+st.set_page_config(page_title="Global Stock Analyzer", layout="wide")
+st.title("🌍 Global Stock Analyzer")
+st.caption("v15 • Multi-Timeframe Trading Intelligence")
 
-HISTORY_FILE = "signal_history.csv"
+# ---------------- DATA ----------------
 
-
-def data(symbol, interval):
+def get_data(symbol, interval):
     periods = {
         "5m": "7d",
         "15m": "30d",
@@ -27,7 +25,7 @@ def data(symbol, interval):
         period=periods.get(interval, "60d"),
         interval=interval,
         progress=False,
-        auto_adjust=False
+        auto_adjust=True
     )
 
     if df.empty:
@@ -36,712 +34,772 @@ def data(symbol, interval):
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    df = df.dropna().copy()
+    df = df.rename(columns=str.title)
+    df = df.dropna(subset=["Close"])
 
     df["SMA20"] = df["Close"].rolling(20).mean()
     df["SMA50"] = df["Close"].rolling(50).mean()
 
-    change = df["Close"].diff()
-    gain = change.clip(lower=0).rolling(14).mean()
-    loss = -change.clip(upper=0).rolling(14).mean()
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = -delta.clip(upper=0).rolling(14).mean()
 
     rs = gain / loss.replace(0, np.nan)
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    df["VolRatio"] = (
-        df["Volume"] /
-        df["Volume"].rolling(20).mean()
-    )
+    df["VolAvg"] = df["Volume"].rolling(20).mean()
+    df["VolRatio"] = df["Volume"] / df["VolAvg"]
 
-    df["PrevHigh"] = (
-        df["High"].rolling(20).max().shift(1)
-    )
+    df["PrevHigh"] = df["High"].rolling(20).max().shift(1)
 
     return df.dropna()
 
 
-def signal(df, i, strategy):
-    r = df.iloc[i]
+# ---------------- TIMEFRAME ----------------
 
-    price = float(r["Close"])
-    sma20 = float(r["SMA20"])
-    sma50 = float(r["SMA50"])
-    rsi = float(r["RSI"])
-    vol = float(r["VolRatio"])
+def higher_timeframe(interval):
+    if interval == "5m":
+        return "15m"
+    if interval == "15m":
+        return "1h"
+    if interval == "30m":
+        return "1h"
+    return "1d"
 
-    if strategy == "Trend Momentum":
-        return (
-            price > sma20
-            and sma20 > sma50
-            and rsi > 55
-        )
 
-    if strategy == "Oversold Reversal":
-        return (
-            rsi < 35
-            and price <= sma20 * 1.01
-            and vol >= 1.2
-        )
+def trend_from_df(df):
+    if df.empty:
+        return "UNKNOWN"
 
-    if strategy == "Breakout":
-        return (
-            price > float(r["PrevHigh"])
-            and vol >= 1.5
-        )
+    last = df.iloc[-1]
 
-    score = 0
+    if last["Close"] > last["SMA20"] and last["SMA20"] > last["SMA50"]:
+        return "BULLISH"
 
-    if price > sma20:
-        score += 25
+    if last["Close"] < last["SMA20"] and last["SMA20"] < last["SMA50"]:
+        return "BEARISH"
 
-    if sma20 > sma50:
-        score += 25
+    return "NEUTRAL"
 
-    if rsi > 55:
-        score += 20
+
+def timeframe_score(trend):
+    if trend == "BULLISH":
+        return 100
+    if trend == "BEARISH":
+        return 0
+    return 50
+
+
+# ---------------- MULTI TIMEFRAME ----------------
+
+def multi_timeframe(symbol, primary):
+    higher = higher_timeframe(primary)
+
+    primary_df = get_data(symbol, primary)
+    higher_df = get_data(symbol, higher)
+    daily_df = get_data(symbol, "1d")
+
+    p_trend = trend_from_df(primary_df)
+    h_trend = trend_from_df(higher_df)
+    d_trend = trend_from_df(daily_df)
+
+    scores = [
+        timeframe_score(p_trend),
+        timeframe_score(h_trend),
+        timeframe_score(d_trend)
+    ]
+
+    alignment = int(np.mean(scores))
+
+    bullish_count = sum(x == "BULLISH" for x in [p_trend, h_trend, d_trend])
+    bearish_count = sum(x == "BEARISH" for x in [p_trend, h_trend, d_trend])
+
+    if bullish_count == 3:
+        label = "STRONG BULLISH ALIGNMENT"
+    elif bearish_count == 3:
+        label = "STRONG BEARISH ALIGNMENT"
+    elif bullish_count >= 2:
+        label = "BULLISH ALIGNMENT"
+    elif bearish_count >= 2:
+        label = "BEARISH ALIGNMENT"
+    else:
+        label = "MIXED"
+
+    return {
+        "primary": p_trend,
+        "higher": h_trend,
+        "daily": d_trend,
+        "alignment": alignment,
+        "label": label
+    }
+
+
+# ---------------- SETUP ENGINE ----------------
+
+def analyze(df):
+    last = df.iloc[-1]
+
+    price = float(last["Close"])
+    rsi = float(last["RSI"])
+    vol = float(last["VolRatio"])
+
+    trend = trend_from_df(df)
+
+    bullish = 0
+    bearish = 0
+    reasons_b = []
+    reasons_s = []
+
+    if trend == "BULLISH":
+        bullish += 30
+        reasons_b.append("Price is above SMA20 and SMA50")
+    elif trend == "BEARISH":
+        bearish += 30
+        reasons_s.append("Price is below SMA20 and SMA50")
+
+    if rsi < 35:
+        bullish += 20
+        reasons_b.append("RSI is oversold")
+    elif rsi > 65:
+        bearish += 20
+        reasons_s.append("RSI is overbought")
+
+    if rsi > 50:
+        bullish += 10
+    elif rsi < 50:
+        bearish += 10
 
     if vol >= 1.5:
-        score += 15
+        bullish += 10
+        bearish += 10
+        reasons_b.append("High volume confirms participation")
+        reasons_s.append("High volume increases selling-risk if trend breaks")
 
-    if price > float(r["PrevHigh"]):
-        score += 15
+    support = float(df["Low"].tail(20).min())
+    resistance = float(df["High"].tail(20).max())
 
-    return score >= 60
+    near_support = price <= support * 1.01
+    near_resistance = price >= resistance * 0.99
+
+    if near_support:
+        bullish += 15
+        reasons_b.append("Price is near support")
+
+    if near_resistance:
+        bearish += 15
+        reasons_s.append("Price is near resistance")
+
+    breakout = price > float(last["PrevHigh"]) if not pd.isna(last["PrevHigh"]) else False
+
+    if breakout and vol >= 1.2:
+        bullish += 20
+        reasons_b.append("Price is breaking above recent highs")
+
+    bullish = min(100, bullish)
+    bearish = min(100, bearish)
+
+    if trend == "BULLISH" and rsi >= 50 and bullish >= bearish:
+        setup = "TREND MOMENTUM"
+    elif rsi < 35 and near_support:
+        setup = "POTENTIAL REVERSAL"
+    elif breakout:
+        setup = "BREAKOUT"
+    else:
+        setup = "NO CLEAR SETUP"
+
+    if bullish >= 65 and bullish > bearish:
+        action = "BUY"
+    elif bearish >= 70 and bearish > bullish:
+        action = "EXIT"
+    elif bullish >= 45 and bearish >= 45:
+        action = "WATCH"
+    else:
+        action = "WAIT"
+
+    confidence = int(max(bullish, bearish))
+
+    entry_low = price * 0.998
+    entry_high = price * 1.002
+
+    stop = support * 0.985
+
+    if stop >= price:
+        stop = price * 0.98
+
+    risk = price - stop
+
+    target1 = price + risk * 1.5
+    target2 = price + risk * 2.5
+
+    return {
+        "price": price,
+        "trend": trend,
+        "rsi": rsi,
+        "volume": vol,
+        "bullish": bullish,
+        "bearish": bearish,
+        "setup": setup,
+        "action": action,
+        "confidence": confidence,
+        "support": support,
+        "resistance": resistance,
+        "entry_low": entry_low,
+        "entry_high": entry_high,
+        "stop": stop,
+        "target1": target1,
+        "target2": target2,
+        "rr": (target1 - price) / risk if risk > 0 else 0,
+        "bullish_reasons": reasons_b,
+        "bearish_reasons": reasons_s
+    }
 
 
-def backtest(df, strategy, target_r, stop_pct, max_bars):
+# ---------------- FINAL DECISION ----------------
+
+def final_decision(result, mtf):
+    action = result["action"]
+    align = mtf["alignment"]
+
+    if action == "BUY" and align >= 83:
+        return "STRONG BUY"
+
+    if action == "BUY" and align >= 50:
+        return "BUY"
+
+    if action == "BUY" and align < 50:
+        return "WATCH"
+
+    if action == "EXIT" and align <= 17:
+        return "STRONG EXIT"
+
+    if action == "EXIT":
+        return "EXIT"
+
+    if action == "WATCH":
+        return "WATCH"
+
+    return "WAIT"
+
+
+# ---------------- HISTORY ----------------
+
+HISTORY_FILE = "signal_history.csv"
+
+
+def save_signal(symbol, interval, result, mtf, decision):
+    row = {
+        "Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Symbol": symbol,
+        "Interval": interval,
+        "Decision": decision,
+        "Setup": result["setup"],
+        "PrimaryTrend": mtf["primary"],
+        "HigherTrend": mtf["higher"],
+        "DailyTrend": mtf["daily"],
+        "Alignment": mtf["alignment"],
+        "Price": result["price"],
+        "RSI": result["rsi"],
+        "Confidence": result["confidence"]
+    }
+
+    new = pd.DataFrame([row])
+
+    if os.path.exists(HISTORY_FILE):
+        old = pd.read_csv(HISTORY_FILE)
+        out = pd.concat([old, new], ignore_index=True)
+    else:
+        out = new
+
+    out.to_csv(HISTORY_FILE, index=False)
+
+
+# ---------------- BACKTEST ----------------
+
+def strategy_signal(df, i, strategy):
+    row = df.iloc[i]
+
+    price = row["Close"]
+    sma20 = row["SMA20"]
+    sma50 = row["SMA50"]
+    rsi = row["RSI"]
+    vol = row["VolRatio"]
+
+    if strategy == "Trend Momentum":
+        return price > sma20 and sma20 > sma50 and rsi > 50
+
+    if strategy == "Oversold Reversal":
+        return rsi < 35 and price <= df["Low"].iloc[max(0, i-20):i+1].min() * 1.01
+
+    if strategy == "Breakout":
+        return price > row["PrevHigh"] and vol >= 1.2
+
+    return (
+        (price > sma20 and sma20 > sma50 and rsi > 50)
+        or
+        (rsi < 35 and price <= df["Low"].iloc[max(0, i-20):i+1].min() * 1.01)
+    )
+
+
+def backtest(df, strategy, target_r=1.5, stop_pct=0.02, max_bars=20):
     trades = []
-    i = 60
 
-    while i < len(df) - 2:
-        if not signal(df, i, strategy):
-            i += 1
+    for i in range(50, len(df) - 2):
+        if not strategy_signal(df, i, strategy):
             continue
 
         entry_i = i + 1
-        entry = float(df["Open"].iloc[entry_i])
+        entry = float(df.iloc[entry_i]["Open"])
 
         stop = entry * (1 - stop_pct)
         target = entry + (entry - stop) * target_r
 
+        end = min(entry_i + max_bars, len(df) - 1)
+
+        exit_price = None
         result = "OPEN"
-        exit_price = entry
-        exit_i = entry_i
+        bars = 0
 
-        last = min(
-            entry_i + max_bars,
-            len(df) - 1
-        )
+        for j in range(entry_i, end + 1):
+            high = float(df.iloc[j]["High"])
+            low = float(df.iloc[j]["Low"])
 
-        for j in range(entry_i, last + 1):
-            high = float(df["High"].iloc[j])
-            low = float(df["Low"].iloc[j])
+            bars += 1
 
             if low <= stop:
-                result = "LOSS"
                 exit_price = stop
-                exit_i = j
+                result = "LOSS"
                 break
 
             if high >= target:
-                result = "WIN"
                 exit_price = target
-                exit_i = j
+                result = "WIN"
                 break
 
-        if result == "OPEN":
-            exit_price = float(df["Close"].iloc[last])
-            exit_i = last
-            result = (
-                "WIN"
-                if exit_price > entry
-                else "LOSS"
-            )
+        if exit_price is None:
+            exit_price = float(df.iloc[end]["Close"])
+            result = "TIME"
 
-        ret = (
-            (exit_price - entry)
-            / entry
-            * 100
-        )
+        ret = (exit_price - entry) / entry * 100
 
         trades.append({
-            "Signal": str(df.index[i]),
-            "Entry Time": str(df.index[entry_i]),
-            "Entry": round(entry, 2),
-            "Stop": round(stop, 2),
-            "Target": round(target, 2),
-            "Exit": round(exit_price, 2),
+            "Signal Time": df.index[i],
+            "Entry Time": df.index[entry_i],
+            "Entry": entry,
+            "Stop": stop,
+            "Target": target,
+            "Exit": exit_price,
             "Result": result,
-            "Return %": round(ret, 2),
-            "Bars": exit_i - entry_i + 1
+            "Return %": ret,
+            "Bars": bars
         })
-
-        i = exit_i + 1
 
     return pd.DataFrame(trades)
 
 
 def stats(trades):
     if trades.empty:
-        return {
-            "Trades": 0,
-            "Win Rate": 0,
-            "Avg Return": 0,
-            "Profit Factor": 0,
-            "Total Return": 0
-        }
+        return 0, 0, 0, 0
 
-    total = len(trades)
+    wins = trades[trades["Result"] == "WIN"]
+    losses = trades[trades["Result"] == "LOSS"]
 
-    wins = (
-        trades["Result"] == "WIN"
-    ).sum()
-
-    win_rate = wins / total * 100
+    win_rate = len(wins) / len(trades) * 100
     avg_return = trades["Return %"].mean()
+
+    gross_win = wins["Return %"].sum()
+    gross_loss = abs(losses["Return %"].sum())
+
+    profit_factor = (
+        gross_win / gross_loss
+        if gross_loss > 0
+        else 999
+    )
+
     total_return = trades["Return %"].sum()
 
-    profit = trades.loc[
-        trades["Return %"] > 0,
-        "Return %"
-    ].sum()
-
-    loss = abs(
-        trades.loc[
-            trades["Return %"] < 0,
-            "Return %"
-        ].sum()
-    )
-
-    pf = (
-        profit / loss
-        if loss > 0
-        else 0
-    )
-
-    return {
-        "Trades": total,
-        "Win Rate": win_rate,
-        "Avg Return": avg_return,
-        "Profit Factor": pf,
-        "Total Return": total_return
-    }
+    return win_rate, avg_return, profit_factor, total_return
 
 
-def current(symbol, interval):
-    df = data(symbol, interval)
+# ---------------- TABS ----------------
 
-    if df.empty:
-        return None, df
-
-    r = df.iloc[-1]
-
-    price = float(r["Close"])
-    sma20 = float(r["SMA20"])
-    sma50 = float(r["SMA50"])
-    rsi = float(r["RSI"])
-    vol = float(r["VolRatio"])
-
-    bull = 0
-    bear = 0
-
-    if price > sma20:
-        bull += 25
-    else:
-        bear += 25
-
-    if sma20 > sma50:
-        bull += 25
-    else:
-        bear += 25
-
-    if rsi > 55:
-        bull += 20
-    elif rsi < 45:
-        bear += 20
-
-    if vol >= 1.5:
-        if price >= float(r["Open"]):
-            bull += 15
-        else:
-            bear += 15
-
-    if rsi < 35:
-        bull += 15
-
-    if bull >= 60 and bull > bear:
-        action = "BUY"
-        setup = "BULLISH TREND"
-    elif bear >= 60 and bear > bull:
-        action = "EXIT"
-        setup = "BEARISH TREND"
-    elif rsi < 35 and vol >= 1.5:
-        action = "WATCH"
-        setup = "POTENTIAL REVERSAL"
-    else:
-        action = "WAIT"
-        setup = "NEUTRAL"
-
-    return {
-        "price": price,
-        "rsi": rsi,
-        "volume": vol,
-        "bull": bull,
-        "bear": bear,
-        "action": action,
-        "setup": setup
-    }, df
-
-
-def load_history():
-    if os.path.exists(HISTORY_FILE):
-        try:
-            return pd.read_csv(HISTORY_FILE)
-        except:
-            pass
-    return pd.DataFrame()
-
-
-def save_history(symbol, interval, r):
-    row = {
-        "Time": pd.Timestamp.now(),
-        "Symbol": symbol,
-        "Interval": interval,
-        "Action": r["action"],
-        "Setup": r["setup"],
-        "Price": r["price"],
-        "RSI": r["rsi"],
-        "Confidence": max(
-            r["bull"],
-            r["bear"]
-        )
-    }
-
-    old = load_history()
-    new = pd.DataFrame([row])
-    result = pd.concat(
-        [old, new],
-        ignore_index=True
-    )
-
-    result.to_csv(
-        HISTORY_FILE,
-        index=False
-    )
-
-
-st.title("🌍 Global Stock Analyzer")
-st.caption(
-    "Market analysis + global scanner + Strategy Lab"
-)
-
-tab1, tab2, tab3, tab4 = st.tabs([
+tabs = st.tabs([
     "📊 Single Stock",
     "🌍 Global Scanner",
-    "📈 Performance",
+    "📜 Signal History",
     "🧪 Strategy Lab"
 ])
 
 
-with tab1:
-    st.subheader("Single Stock Analysis")
+# ---------------- SINGLE STOCK ----------------
 
-    a, b = st.columns(2)
+with tabs[0]:
 
-    with a:
-        symbol = st.text_input(
-            "Symbol",
-            "AAPL"
-        ).strip().upper()
+    symbol = st.text_input(
+        "Stock / ETF / Index",
+        "AAPL"
+    ).upper().strip()
 
-    with b:
-        interval = st.selectbox(
-            "Timeframe",
-            ["5m", "15m", "30m", "1h", "1d"],
-            index=1
-        )
-
-    if st.button(
-        "🔎 Analyze",
-        use_container_width=True
-    ):
-        try:
-            r, df = current(
-                symbol,
-                interval
-            )
-
-            if r is None:
-                st.error("No market data.")
-            else:
-                save_history(
-                    symbol,
-                    interval,
-                    r
-                )
-
-                st.success(
-                    f"{r['action']} — {r['setup']}"
-                )
-
-                a, b, c, d = st.columns(4)
-
-                a.metric(
-                    "Price",
-                    f"{r['price']:.2f}"
-                )
-
-                b.metric(
-                    "RSI",
-                    f"{r['rsi']:.1f}"
-                )
-
-                c.metric(
-                    "Volume",
-                    f"{r['volume']:.2f}x"
-                )
-
-                d.metric(
-                    "Confidence",
-                    f"{max(r['bull'], r['bear'])}%"
-                )
-
-                a, b, c = st.columns(3)
-
-                a.metric(
-                    "Action",
-                    r["action"]
-                )
-
-                b.metric(
-                    "Bullish",
-                    f"{r['bull']}%"
-                )
-
-                c.metric(
-                    "Bearish",
-                    f"{r['bear']}%"
-                )
-
-                st.write(
-                    f"**Setup:** {r['setup']}"
-                )
-
-                st.line_chart(
-                    df[
-                        ["Close", "SMA20", "SMA50"]
-                    ].tail(100)
-                )
-
-        except Exception as e:
-            st.error(
-                f"Analysis failed: {e}"
-            )
-
-
-with tab2:
-    st.subheader("🌍 Global Scanner")
-
-    symbols = st.text_area(
-        "Symbols",
-        "AAPL,MSFT,NVDA,AMZN,META,TSLA,GOOGL,AMD,RELIANCE.NS,TCS.NS,INFY.NS,HDFCBANK.NS"
-    )
-
-    tf = st.selectbox(
-        "Scanner timeframe",
+    interval = st.selectbox(
+        "Primary Timeframe",
         ["5m", "15m", "30m", "1h"],
         index=1
     )
 
-    if st.button(
-        "🌍 Scan Market",
-        use_container_width=True
-    ):
-        rows = []
+    if st.button("🔍 Analyze Market"):
 
-        items = [
+        with st.spinner("Analyzing multiple timeframes..."):
+
+            df = get_data(symbol, interval)
+
+            if df.empty:
+                st.error("No market data found.")
+            else:
+
+                result = analyze(df)
+                mtf = multi_timeframe(symbol, interval)
+                decision = final_decision(result, mtf)
+
+                save_signal(
+                    symbol,
+                    interval,
+                    result,
+                    mtf,
+                    decision
+                )
+
+                st.subheader(f"{symbol} — {interval}")
+
+                c1, c2, c3, c4 = st.columns(4)
+
+                c1.metric("Decision", decision)
+                c2.metric("Price", f"{result['price']:.2f}")
+                c3.metric("Setup", result["setup"])
+                c4.metric("Confidence", f"{result['confidence']}%")
+
+                st.markdown("### 🧭 Multi-Timeframe Confirmation")
+
+                a, b, c, d = st.columns(4)
+
+                a.metric(
+                    f"{interval}",
+                    mtf["primary"]
+                )
+
+                a = b
+
+                b.metric(
+                    higher_timeframe(interval),
+                    mtf["higher"]
+                )
+
+                c.metric(
+                    "1D",
+                    mtf["daily"]
+                )
+
+                d.metric(
+                    "Alignment",
+                    f"{mtf['alignment']}/100"
+                )
+
+                if mtf["alignment"] >= 83:
+                    st.success(
+                        f"🟢 {mtf['label']}"
+                    )
+                elif mtf["alignment"] <= 17:
+                    st.error(
+                        f"🔴 {mtf['label']}"
+                    )
+                else:
+                    st.warning(
+                        f"🟡 {mtf['label']}"
+                    )
+
+                st.markdown("### 📈 Technical State")
+
+                x1, x2, x3, x4 = st.columns(4)
+
+                x1.metric(
+                    "Trend",
+                    result["trend"]
+                )
+
+                x2.metric(
+                    "RSI",
+                    f"{result['rsi']:.1f}"
+                )
+
+                x3.metric(
+                    "Volume",
+                    f"{result['volume']:.2f}×"
+                )
+
+                x4.metric(
+                    "Bull / Bear",
+                    f"{result['bullish']} / {result['bearish']}"
+                )
+
+                st.markdown("### 🎯 Trading Levels")
+
+                l1, l2, l3, l4 = st.columns(4)
+
+                l1.metric(
+                    "Entry",
+                    f"{result['entry_low']:.2f} - {result['entry_high']:.2f}"
+                )
+
+                l2.metric(
+                    "Stop",
+                    f"{result['stop']:.2f}"
+                )
+
+                l3.metric(
+                    "Target 1",
+                    f"{result['target1']:.2f}"
+                )
+
+                l4.metric(
+                    "Target 2",
+                    f"{result['target2']:.2f}"
+                )
+
+                st.write(
+                    f"**Risk / Reward:** {result['rr']:.2f}R"
+                )
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("### 🟢 Bullish Factors")
+
+                    if result["bullish_reasons"]:
+                        for x in result["bullish_reasons"]:
+                            st.write("• " + x)
+                    else:
+                        st.write("No strong bullish factors.")
+
+                with col2:
+                    st.markdown("### 🔴 Bearish Factors")
+
+                    if result["bearish_reasons"]:
+                        for x in result["bearish_reasons"]:
+                            st.write("• " + x)
+                    else:
+                        st.write("No strong bearish factors.")
+
+                st.markdown("### 🧠 Analyst Interpretation")
+
+                if decision == "STRONG BUY":
+                    st.success(
+                        "Multiple timeframes agree with the setup. "
+                        "This is a high-quality candidate, but risk management is still required."
+                    )
+
+                elif decision == "BUY":
+                    st.success(
+                        "The primary setup is bullish and higher-timeframe confirmation "
+                        "is supportive, but alignment is not perfect."
+                    )
+
+                elif decision == "WATCH":
+                    st.warning(
+                        "The setup is interesting, but confirmation is incomplete. "
+                        "Wait for stronger price/volume confirmation."
+                    )
+
+                elif decision in ["EXIT", "STRONG EXIT"]:
+                    st.error(
+                        "The technical structure is bearish. "
+                        "Avoid treating a temporary bounce as confirmation of a new uptrend."
+                    )
+
+                else:
+                    st.info(
+                        "No sufficiently strong trading setup is confirmed yet."
+                    )
+
+                st.markdown("### 📊 Price Chart")
+
+                chart = df[["Close", "SMA20", "SMA50"]].tail(150)
+
+                st.line_chart(chart)
+
+
+# ---------------- SCANNER ----------------
+
+with tabs[1]:
+
+    st.subheader("🌍 Global Scanner")
+
+    symbols_text = st.text_area(
+        "Symbols",
+        "AAPL,MSFT,NVDA,AMZN,META,TSLA,GOOGL,AMD,RELIANCE.NS,TCS.NS,INFY.NS,HDFCBANK.NS"
+    )
+
+    scan_interval = st.selectbox(
+        "Scanner Timeframe",
+        ["5m", "15m", "30m", "1h"],
+        index=1
+    )
+
+    if st.button("🚀 Scan Global Market"):
+
+        symbols = [
             x.strip().upper()
-            for x in symbols.split(",")
+            for x in symbols_text.split(",")
             if x.strip()
         ]
 
-        bar = st.progress(0)
+        rows = []
 
-        for n, s in enumerate(items):
+        progress = st.progress(0)
+
+        for n, sym in enumerate(symbols):
+
             try:
-                r, _ = current(s, tf)
+                df = get_data(sym, scan_interval)
 
-                if r:
+                if not df.empty:
+
+                    result = analyze(df)
+                    mtf = multi_timeframe(sym, scan_interval)
+
+                    decision = final_decision(
+                        result,
+                        mtf
+                    )
+
                     rows.append({
-                        "Symbol": s,
-                        "Action": r["action"],
-                        "Setup": r["setup"],
-                        "RSI": round(
-                            r["rsi"],
-                            1
-                        ),
-                        "Volume": round(
-                            r["volume"],
-                            2
-                        ),
-                        "Bullish %": r["bull"],
-                        "Bearish %": r["bear"],
-                        "Confidence %": max(
-                            r["bull"],
-                            r["bear"]
-                        ),
-                        "Price": round(
-                            r["price"],
-                            2
-                        )
+                        "Symbol": sym,
+                        "Decision": decision,
+                        "Setup": result["setup"],
+                        "Primary": mtf["primary"],
+                        "Higher": mtf["higher"],
+                        "Daily": mtf["daily"],
+                        "Alignment": mtf["alignment"],
+                        "Trend": result["trend"],
+                        "RSI": round(result["rsi"], 1),
+                        "Volume": round(result["volume"], 2),
+                        "Confidence": result["confidence"],
+                        "Price": round(result["price"], 2)
                     })
-            except:
+
+            except Exception:
                 pass
 
-            bar.progress(
-                (n + 1) / len(items)
+            progress.progress(
+                (n + 1) / max(len(symbols), 1)
             )
 
-        result = pd.DataFrame(rows)
+        if rows:
 
-        if result.empty:
-            st.warning("No results.")
-        else:
+            scan = pd.DataFrame(rows)
+
+            scan = scan.sort_values(
+                ["Alignment", "Confidence"],
+                ascending=False
+            )
+
             st.dataframe(
-                result,
-                use_container_width=True,
-                hide_index=True
+                scan,
+                use_container_width=True
             )
 
+            st.download_button(
+                "⬇️ Download Scanner Results",
+                scan.to_csv(index=False),
+                "global_scan.csv",
+                "text/csv"
+            )
 
-with tab3:
-    st.subheader("📈 Signal History")
+        else:
+            st.warning("No symbols returned usable data.")
 
-    history = load_history()
 
-    if history.empty:
-        st.info("No signals recorded yet.")
-    else:
-        st.metric(
-            "Total Signals",
-            len(history)
-        )
+# ---------------- HISTORY ----------------
+
+with tabs[2]:
+
+    st.subheader("📜 Signal History")
+
+    if os.path.exists(HISTORY_FILE):
+
+        hist = pd.read_csv(HISTORY_FILE)
 
         st.dataframe(
-            history.tail(100),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        csv = history.to_csv(
-            index=False
+            hist.tail(100),
+            use_container_width=True
         )
 
         st.download_button(
-            "⬇️ Download History",
-            csv,
+            "⬇️ Download Signal History",
+            hist.to_csv(index=False),
             "signal_history.csv",
             "text/csv"
         )
 
+    else:
+        st.info("No signals recorded yet.")
 
-with tab4:
+
+# ---------------- STRATEGY LAB ----------------
+
+with tabs[3]:
+
     st.subheader("🧪 Strategy Lab")
 
-    st.write(
-        "Compare four strategies using historical data."
+    bt_symbol = st.text_input(
+        "Backtest Symbol",
+        "AAPL",
+        key="bt_symbol"
+    ).upper().strip()
+
+    bt_interval = st.selectbox(
+        "Backtest Timeframe",
+        ["15m", "30m", "1h", "1d"],
+        index=2
     )
 
-    a, b = st.columns(2)
+    strategies = [
+        "Trend Momentum",
+        "Oversold Reversal",
+        "Breakout",
+        "Combined Score"
+    ]
 
-    with a:
-        bt_symbol = st.text_input(
-            "Backtest symbol",
-            "AAPL"
-        ).strip().upper()
+    strategy = st.selectbox(
+        "Strategy",
+        strategies
+    )
 
-    with b:
-        bt_tf = st.selectbox(
-            "Backtest timeframe",
-            ["15m", "30m", "1h", "1d"],
-            index=0
-        )
+    target_r = st.slider(
+        "Target R",
+        1.0,
+        4.0,
+        1.5,
+        0.25
+    )
 
-    a, b, c = st.columns(3)
+    stop_pct = st.slider(
+        "Stop Loss %",
+        0.5,
+        5.0,
+        2.0,
+        0.5
+    ) / 100
 
-    with a:
-        target_r = st.slider(
-            "Target R",
-            1.0,
-            5.0,
-            2.0,
-            0.5
-        )
+    if st.button("🧪 Run Backtest"):
 
-    with b:
-        stop_pct = st.slider(
-            "Stop Loss %",
-            1.0,
-            10.0,
-            3.0,
-            0.5
-        ) / 100
+        with st.spinner("Running historical test..."):
 
-    with c:
-        max_bars = st.slider(
-            "Max Holding Bars",
-            5,
-            50,
-            20,
-            5
-        )
-
-    if st.button(
-        "🧪 Compare Strategies",
-        use_container_width=True
-    ):
-        with st.spinner(
-            "Running historical tests..."
-        ):
-            df = data(
+            df = get_data(
                 bt_symbol,
-                bt_tf
+                bt_interval
             )
 
-        if df.empty:
-            st.error(
-                "No historical data found."
-            )
-        else:
-            strategies = [
-                "Trend Momentum",
-                "Oversold Reversal",
-                "Breakout",
-                "Combined Score"
-            ]
-
-            results = {}
-            summary = []
-
-            for strategy in strategies:
-                trades = backtest(
-                    df,
-                    strategy,
-                    target_r,
-                    stop_pct,
-                    max_bars
-                )
-
-                results[strategy] = trades
-
-                m = stats(trades)
-
-                summary.append({
-                    "Strategy": strategy,
-                    "Trades": m["Trades"],
-                    "Win Rate %": round(
-                        m["Win Rate"],
-                        1
-                    ),
-                    "Avg Return %": round(
-                        m["Avg Return"],
-                        2
-                    ),
-                    "Profit Factor": round(
-                        m["Profit Factor"],
-                        2
-                    ),
-                    "Total Return %": round(
-                        m["Total Return"],
-                        2
-                    )
-                })
-
-            table = pd.DataFrame(
-                summary
-            )
-
-            st.subheader(
-                "Strategy Comparison"
-            )
-
-            st.dataframe(
-                table,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            valid = table[
-                table["Trades"] > 0
-            ]
-
-            if not valid.empty:
-                best = valid.sort_values(
-                    "Profit Factor",
-                    ascending=False
-                ).iloc[0]
-
-                st.success(
-                    f"Best by Profit Factor: "
-                    f"{best['Strategy']} — "
-                    f"{best['Profit Factor']:.2f}"
-                )
-
-            st.subheader(
-                "Equity Curves"
-            )
-
-            for strategy in strategies:
-                trades = results[strategy]
-
-                if trades.empty:
-                    continue
-
-                equity = (
-                    100 *
-                    (
-                        1 +
-                        trades["Return %"] / 100
-                    ).cumprod()
-                )
-
-                st.write(
-                    f"**{strategy}**"
-                )
-
-                st.line_chart(
-                    pd.DataFrame(
-                        {
-                            "Equity": equity
-                        }
-                    )
-                )
-
-            chosen = st.selectbox(
-                "View trades",
-                strategies
-            )
-
-            trades = results[chosen]
-
-            if trades.empty:
-                st.info(
-                    "No trades for this strategy."
-                )
+            if df.empty:
+                st.error("No historical data.")
             else:
-                st.dataframe(
-                    trades,
-                    use_container_width=True,
-                    hide_index=True
-                )
 
-                csv = trades.to_csv(
-                    index=False
-                )
-
-                st.download_button(
-                    "⬇️ Download Trades",
-                    csv,
-                    "strategy_trades.csv",
-                    "text/csv"
-        )
+                trades = backtest(
+              
