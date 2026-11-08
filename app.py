@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.title("🌍 Global Stock Analyzer")
-st.caption("Live-market trading setup analyzer")
+st.caption("Live-market trading setup analyzer v2")
 
 
 ticker = st.text_input(
