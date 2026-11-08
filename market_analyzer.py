@@ -4,10 +4,6 @@ import numpy as np
 
 
 def get_stock_data(ticker, period="30d", interval="15m"):
-    """
-    Download market data from Yahoo Finance.
-    """
-
     ticker = ticker.strip().upper()
 
     try:
@@ -28,23 +24,23 @@ def get_stock_data(ticker, period="30d", interval="15m"):
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
 
-        required_columns = ["Close", "Volume"]
+        if "Close" not in data.columns:
+            raise RuntimeError("Yahoo Finance did not return Close data.")
 
-        for column in required_columns:
+        if "Volume" not in data.columns:
+            raise RuntimeError("Yahoo Finance did not return Volume data.")
 
-            if column not in data.columns:
-                raise RuntimeError(
-                    f"Yahoo Finance did not return '{column}' data."
-                )
-
-            data[column] = pd.to_numeric(
-                data[column],
-                errors="coerce"
-            )
-
-        data = data.dropna(
-            subset=["Close"]
+        data["Close"] = pd.to_numeric(
+            data["Close"],
+            errors="coerce"
         )
+
+        data["Volume"] = pd.to_numeric(
+            data["Volume"],
+            errors="coerce"
+        )
+
+        data = data.dropna(subset=["Close"])
 
         if data.empty:
             return None
@@ -52,7 +48,6 @@ def get_stock_data(ticker, period="30d", interval="15m"):
         return data
 
     except Exception as e:
-
         raise RuntimeError(
             f"Market data failed for {ticker}: "
             f"{type(e).__name__}: {e}"
@@ -60,7 +55,6 @@ def get_stock_data(ticker, period="30d", interval="15m"):
 
 
 def calculate_indicators(data):
-
     data = data.copy()
 
     close = data["Close"].astype(float)
@@ -77,13 +71,8 @@ def calculate_indicators(data):
 
     delta = close.diff()
 
-    gain = delta.clip(
-        lower=0
-    )
-
-    loss = -delta.clip(
-        upper=0
-    )
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
     avg_gain = gain.rolling(
         window=14,
@@ -95,10 +84,7 @@ def calculate_indicators(data):
         min_periods=14
     ).mean()
 
-    avg_loss = avg_loss.replace(
-        0,
-        np.nan
-    )
+    avg_loss = avg_loss.replace(0, np.nan)
 
     rs = avg_gain / avg_loss
 
@@ -124,7 +110,6 @@ def calculate_indicators(data):
 
 
 def get_signal(data):
-
     valid = data.dropna(
         subset=[
             "SMA_20",
@@ -135,7 +120,6 @@ def get_signal(data):
     )
 
     if valid.empty:
-
         return {
             "signal": "WAIT",
             "score": 0,
@@ -148,7 +132,7 @@ def get_signal(data):
             "target1": 0,
             "target2": 0,
             "reasons": [
-                "Not enough data to calculate the indicators."
+                "Not enough data to calculate indicators."
             ]
         }
 
@@ -157,58 +141,4 @@ def get_signal(data):
     close = float(latest["Close"])
     sma20 = float(latest["SMA_20"])
     sma50 = float(latest["SMA_50"])
-    rsi = float(latest["RSI"])
-    volume_ratio = float(latest["Volume_Ratio"])
-
-    score = 50
-    reasons = []
-
-    if close > sma20:
-        score += 10
-        reasons.append(
-            "Price is above the 20-period average."
-        )
-    else:
-        score -= 10
-        reasons.append(
-            "Price is below the 20-period average."
-        )
-
-    if sma20 > sma50:
-        score += 10
-        reasons.append(
-            "Short-term trend is above the medium-term trend."
-        )
-    else:
-        score -= 10
-        reasons.append(
-            "Short-term trend is below the medium-term trend."
-        )
-
-    if 50 <= rsi <= 70:
-        score += 10
-        reasons.append(
-            "Momentum is positive."
-        )
-
-    elif rsi < 30:
-        score += 5
-        reasons.append(
-            "RSI indicates potentially oversold conditions."
-        )
-
-    elif rsi > 70:
-        score -= 10
-        reasons.append(
-            "RSI indicates potentially overbought conditions."
-        )
-
-    else:
-        reasons.append(
-            "Momentum is currently neutral."
-        )
-
-    if volume_ratio >= 1.2:
-        score += 10
-        reasons.append(
-            "Volume is above its recent average."
+    r
