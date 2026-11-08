@@ -17,7 +17,7 @@ st.set_page_config(
 st.title("🌍 Global Stock Analyzer")
 
 st.caption(
-    "Live-market trading setup analyzer"
+    "Live-market trading setup analyzer v4"
 )
 
 
@@ -45,20 +45,16 @@ interval = st.selectbox(
 if st.button("🔎 Analyze Market"):
 
     if not ticker:
-
         st.warning(
             "Enter a stock symbol first."
         )
-
         st.stop()
-
 
     with st.spinner(
         "Downloading market data..."
     ):
 
         try:
-
             data = get_stock_data(
                 ticker.upper(),
                 period="30d",
@@ -66,7 +62,6 @@ if st.button("🔎 Analyze Market"):
             )
 
         except Exception as e:
-
             st.error(
                 "Market data request failed."
             )
@@ -77,23 +72,18 @@ if st.button("🔎 Analyze Market"):
 
             st.stop()
 
-
     if data is None:
-
         st.error(
             "No market data found. "
             "Check the stock symbol and try again."
         )
-
         st.stop()
-
 
     with st.spinner(
         "Calculating indicators..."
     ):
 
         try:
-
             data = calculate_indicators(
                 data
             )
@@ -103,7 +93,6 @@ if st.button("🔎 Analyze Market"):
             )
 
         except Exception as e:
-
             st.error(
                 "Analysis failed."
             )
@@ -114,44 +103,33 @@ if st.button("🔎 Analyze Market"):
 
             st.stop()
 
-
     st.success(
         f"Market analysis completed for "
         f"{ticker.upper()}"
     )
 
-
     signal = result["signal"]
 
-
     if signal == "BUY SETUP":
-
         st.success(
             f"🟢 {signal}"
         )
 
     elif signal == "EXIT / SELL SETUP":
-
         st.error(
             f"🔴 {signal}"
         )
 
     else:
-
         st.warning(
             f"🟡 {signal}"
         )
-
 
     st.subheader(
         "Market Overview"
     )
 
-
-    col1, col2, col3, col4 = (
-        st.columns(4)
-    )
-
+    col1, col2, col3, col4 = st.columns(4)
 
     col1.metric(
         "Price",
@@ -173,16 +151,11 @@ if st.button("🔎 Analyze Market"):
         result["trend"]
     )
 
-
     st.subheader(
         "Trading Levels"
     )
 
-
-    c1, c2, c3, c4 = (
-        st.columns(4)
-    )
-
+    c1, c2, c3, c4 = st.columns(4)
 
     c1.metric(
         "Entry",
@@ -204,11 +177,9 @@ if st.button("🔎 Analyze Market"):
         f"{result['target2']:.2f}"
     )
 
-
     st.subheader(
         "Market Conditions"
     )
-
 
     st.write(
         f"**Trend:** {result['trend']}"
@@ -219,18 +190,14 @@ if st.button("🔎 Analyze Market"):
         f"{result['volume_ratio']:.2f}× average"
     )
 
-
     st.subheader(
         "Why this signal?"
     )
 
-
     for reason in result["reasons"]:
-
         st.write(
             f"• {reason}"
         )
-
 
     st.subheader(
         "Price"
@@ -240,11 +207,9 @@ if st.button("🔎 Analyze Market"):
         data["Close"]
     )
 
-
     st.subheader(
         "Moving Averages"
     )
-
 
     chart = data[
         [
@@ -254,11 +219,9 @@ if st.button("🔎 Analyze Market"):
         ]
     ].dropna()
 
-
     st.line_chart(
         chart
     )
-
 
     st.caption(
         "This is an analytical research tool, "
