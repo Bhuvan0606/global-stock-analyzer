@@ -5,10 +5,13 @@ import numpy as np
 import os
 from datetime import datetime
 
-st.set_page_config(page_title="Global Stock Analyzer", layout="wide")
+st.set_page_config(
+    page_title="Global Stock Analyzer",
+    layout="wide"
+)
 
 st.title("🌍 Global Stock Analyzer")
-st.caption("v15 — Multi-Timeframe Trading Intelligence")
+st.caption("v16 — Multi-Timeframe + Market Context")
 
 
 # ---------- DATA ----------
@@ -41,7 +44,6 @@ def get_data(symbol, interval):
     delta = df["Close"].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = -delta.clip(upper=0).rolling(14).mean()
-
     rs = gain / loss.replace(0, np.nan)
 
     df["RSI"] = 100 - (100 / (1 + rs))
@@ -53,9 +55,9 @@ def get_data(symbol, interval):
     return df.dropna()
 
 
-# ---------- TREND ----------
+# ---------- TRENDS ----------
 
-def get_trend(df):
+def trend(df):
     if df.empty:
         return "UNKNOWN"
 
@@ -78,16 +80,12 @@ def higher_tf(tf):
     return "1d"
 
 
-def mtf_analysis(symbol, tf):
-    high_tf = higher_tf(tf)
+def mtf(symbol, tf):
+    htf = higher_tf(tf)
 
-    primary = get_data(symbol, tf)
-    higher = get_data(symbol, high_tf)
-    daily = get_data(symbol, "1d")
-
-    p = get_trend(primary)
-    h = get_trend(higher)
-    d = get_trend(daily)
+    p = trend(get_data(symbol, tf))
+    h = trend(get_data(symbol, htf))
+    d = trend(get_data(symbol, "1d"))
 
     values = {
         "BULLISH": 100,
@@ -122,7 +120,7 @@ def mtf_analysis(symbol, tf):
     }
 
 
-# ---------- ANALYSIS ----------
+# ---------- TECHNICAL ANALYSIS ----------
 
 def analyze(df):
     x = df.iloc[-1]
@@ -131,108 +129,180 @@ def analyze(df):
     rsi = float(x["RSI"])
     volume = float(x["VolRatio"])
 
-    trend = get_trend(df)
+    tr = trend(df)
 
-    bullish = 0
-    bearish = 0
-    bull_reasons = []
-    bear_reasons = []
+    bull = 0
+    bear = 0
+    br = []
+    sr = []
 
-    if trend == "BULLISH":
-        bullish += 30
-        bull_reasons.append("Price is above SMA20 and SMA50")
-
-    elif trend == "BEARISH":
-        bearish += 30
-        bear_reasons.append("Price is below SMA20 and SMA50")
+    if tr == "BULLISH":
+        bull += 30
+        br.append("Price is above SMA20 and SMA50")
+    elif tr == "BEARISH":
+        bear += 30
+        sr.append("Price is below SMA20 and SMA50")
 
     if rsi < 35:
-        bullish += 20
-        bull_reasons.append("RSI is oversold")
-
+        bull += 20
+        br.append("RSI is oversold")
     elif rsi > 65:
-        bearish += 20
-        bear_reasons.append("RSI is overbought")
-
+        bear += 20
+        sr.append("RSI is overbought")
     elif rsi >= 50:
-        bullish += 10
-
+        bull += 10
     else:
-        bearish += 10
+        bear += 10
 
     if volume >= 1.5:
-        bullish += 10
-        bearish += 10
-        bull_reasons.append("High volume confirms participation")
+        bull += 10
+        bear += 10
+        br.append("High volume")
+        sr.append("High volume increases volatility risk")
 
     support = float(df["Low"].tail(20).min())
     resistance = float(df["High"].tail(20).max())
 
     if price <= support * 1.01:
-        bullish += 15
-        bull_reasons.append("Price is near support")
+        bull += 15
+        br.append("Price is near support")
 
     if price >= resistance * 0.99:
-        bearish += 15
-        bear_reasons.append("Price is near resistance")
+        bear += 15
+        sr.append("Price is near resistance")
 
-    if bullish > bearish and bullish >= 60:
+    if bull > bear and bull >= 60:
         action = "BUY"
-    elif bearish > bullish and bearish >= 65:
+    elif bear > bull and bear >= 65:
         action = "EXIT"
-    elif bullish >= 45:
+    elif bull >= 45:
         action = "WATCH"
     else:
         action = "WAIT"
 
     if rsi < 35 and price <= support * 1.01:
         setup = "POTENTIAL REVERSAL"
-    elif trend == "BULLISH" and rsi >= 50:
+    elif tr == "BULLISH" and rsi >= 50:
         setup = "TREND MOMENTUM"
     else:
         setup = "NO CLEAR SETUP"
 
-    risk = max(price - support * 0.985, price * 0.01)
+    risk = max(
+        price - support * 0.985,
+        price * 0.01
+    )
 
     return {
         "price": price,
         "rsi": rsi,
         "volume": volume,
-        "trend": trend,
-        "bullish": min(bullish, 100),
-        "bearish": min(bearish, 100),
+        "trend": tr,
+        "bull": min(bull, 100),
+        "bear": min(bear, 100),
         "action": action,
         "setup": setup,
         "support": support,
         "resistance": resistance,
-        "entry": price,
         "stop": price - risk,
         "target1": price + risk * 1.5,
         "target2": price + risk * 2.5,
-        "bull": bull_reasons,
-        "bear": bear_reasons
+        "bull_reasons": br,
+        "bear_reasons": sr
+    }
+
+
+# ---------- NEWS ----------
+
+def get_news(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        news = ticker.news
+
+        if not news:
+            return []
+
+        return news[:8]
+
+    except Exception:
+        return []
+
+
+def news_context(news):
+    if not news:
+        return {
+            "level": "UNKNOWN",
+            "text": "No recent news was returned."
+        }
+
+    text = " ".join([
+        str(n.get("title", ""))
+        for n in news
+    ]).lower()
+
+    negative = [
+        "lawsuit",
+        "downgrade",
+        "miss",
+        "warning",
+        "investigation",
+        "cut",
+        "recall",
+        "fraud"
+    ]
+
+    positive = [
+        "upgrade",
+        "beat",
+        "growth",
+        "record",
+        "partnership",
+        "approval",
+        "strong"
+    ]
+
+    neg = sum(word in text for word in negative)
+    pos = sum(word in text for word in positive)
+
+    if pos > neg:
+        return {
+            "level": "POSITIVE",
+            "text": "Recent headlines contain more positive signals."
+        }
+
+    if neg > pos:
+        return {
+            "level": "CAUTION",
+            "text": "Recent headlines contain potentially negative risk signals."
+        }
+
+    return {
+        "level": "MIXED",
+        "text": "Recent headlines appear mixed."
     }
 
 
 # ---------- FINAL DECISION ----------
 
-def final_decision(a, m):
-    if a["action"] == "BUY" and m["score"] >= 67:
-        return "STRONG BUY"
+def final_decision(a, m, news):
+    score = m["score"]
 
-    if a["action"] == "BUY":
-        return "BUY"
+    if a["action"] == "BUY" and score >= 67:
+        decision = "STRONG BUY"
+    elif a["action"] == "BUY":
+        decision = "BUY"
+    elif a["action"] == "EXIT" and score <= 33:
+        decision = "STRONG EXIT"
+    elif a["action"] == "EXIT":
+        decision = "EXIT"
+    elif a["action"] == "WATCH":
+        decision = "WATCH"
+    else:
+        decision = "WAIT"
 
-    if a["action"] == "EXIT" and m["score"] <= 33:
-        return "STRONG EXIT"
+    if news["level"] == "CAUTION" and decision in ["STRONG BUY", "BUY"]:
+        decision = "WATCH"
 
-    if a["action"] == "EXIT":
-        return "EXIT"
-
-    if a["action"] == "WATCH":
-        return "WATCH"
-
-    return "WAIT"
+    return decision
 
 
 # ---------- HISTORY ----------
@@ -240,9 +310,11 @@ def final_decision(a, m):
 HISTORY = "signal_history.csv"
 
 
-def save_signal(symbol, tf, a, m, decision):
+def save_signal(symbol, tf, a, m, news, decision):
     row = pd.DataFrame([{
-        "Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Time": datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        ),
         "Symbol": symbol,
         "Timeframe": tf,
         "Decision": decision,
@@ -251,14 +323,17 @@ def save_signal(symbol, tf, a, m, decision):
         "Higher": m["higher"],
         "Daily": m["daily"],
         "Alignment": m["score"],
+        "News": news["level"],
         "Price": a["price"],
-        "RSI": a["rsi"],
-        "Confidence": max(a["bullish"], a["bearish"])
+        "RSI": a["rsi"]
     }])
 
     if os.path.exists(HISTORY):
         old = pd.read_csv(HISTORY)
-        row = pd.concat([old, row], ignore_index=True)
+        row = pd.concat(
+            [old, row],
+            ignore_index=True
+        )
 
     row.to_csv(HISTORY, index=False)
 
@@ -289,23 +364,35 @@ with tab1:
 
     if st.button("🔍 Analyze Market"):
 
-        with st.spinner("Analyzing market..."):
+        with st.spinner(
+            "Analyzing market, timeframes and news..."
+        ):
 
             df = get_data(symbol, tf)
 
             if df.empty:
                 st.error("No market data found.")
+
             else:
 
                 a = analyze(df)
-                m = mtf_analysis(symbol, tf)
-                decision = final_decision(a, m)
+                m = mtf(symbol, tf)
+                news = news_context(
+                    get_news(symbol)
+                )
+
+                decision = final_decision(
+                    a,
+                    m,
+                    news
+                )
 
                 save_signal(
                     symbol,
                     tf,
                     a,
                     m,
+                    news,
                     decision
                 )
 
@@ -315,21 +402,47 @@ with tab1:
 
                 c1, c2, c3, c4 = st.columns(4)
 
-                c1.metric("Decision", decision)
-                c2.metric("Price", f"{a['price']:.2f}")
-                c3.metric("Setup", a["setup"])
-                c4.metric(
-                    "Confidence",
-                    f"{max(a['bullish'], a['bearish'])}%"
+                c1.metric(
+                    "Decision",
+                    decision
                 )
 
-                st.markdown("### 🧭 Multi-Timeframe Confirmation")
+                c2.metric(
+                    "Price",
+                    f"{a['price']:.2f}"
+                )
+
+                c3.metric(
+                    "Setup",
+                    a["setup"]
+                )
+
+                c4.metric(
+                    "Confidence",
+                    f"{max(a['bull'], a['bear'])}%"
+                )
+
+                st.markdown(
+                    "### 🧭 Multi-Timeframe Confirmation"
+                )
 
                 c1, c2, c3, c4 = st.columns(4)
 
-                c1.metric(tf, m["primary"])
-                c2.metric(higher_tf(tf), m["higher"])
-                c3.metric("1D", m["daily"])
+                c1.metric(
+                    tf,
+                    m["primary"]
+                )
+
+                c2.metric(
+                    higher_tf(tf),
+                    m["higher"]
+                )
+
+                c3.metric(
+                    "1D",
+                    m["daily"]
+                )
+
                 c4.metric(
                     "Alignment",
                     f"{m['score']}/100"
@@ -342,25 +455,85 @@ with tab1:
                 else:
                     st.warning(m["label"])
 
-                st.markdown("### 📈 Market State")
+                st.markdown(
+                    "### 📰 Market Context"
+                )
+
+                if news["level"] == "POSITIVE":
+                    st.success(
+                        "🟢 " + news["text"]
+                    )
+                elif news["level"] == "CAUTION":
+                    st.warning(
+                        "⚠️ " + news["text"]
+                    )
+                else:
+                    st.info(
+                        "ℹ️ " + news["text"]
+                    )
+
+                st.markdown(
+                    "### Recent Headlines"
+                )
+
+                raw_news = get_news(symbol)
+
+                if raw_news:
+                    for item in raw_news:
+
+                        title = item.get(
+                            "title",
+                            "Headline"
+                        )
+
+                        publisher = item.get(
+                            "publisher",
+                            ""
+                        )
+
+                        st.write(
+                            f"• **{title}** — {publisher}"
+                        )
+                else:
+                    st.write(
+                        "No recent headlines available."
+                    )
+
+                st.markdown(
+                    "### 📈 Technical State"
+                )
 
                 c1, c2, c3, c4 = st.columns(4)
 
-                c1.metric("Trend", a["trend"])
-                c2.metric("RSI", f"{a['rsi']:.1f}")
-                c3.metric("Volume", f"{a['volume']:.2f}×")
-                c4.metric(
-                    "Bull / Bear",
-                    f"{a['bullish']} / {a['bearish']}"
+                c1.metric(
+                    "Trend",
+                    a["trend"]
                 )
 
-                st.markdown("### 🎯 Trading Levels")
+                c2.metric(
+                    "RSI",
+                    f"{a['rsi']:.1f}"
+                )
+
+                c3.metric(
+                    "Volume",
+                    f"{a['volume']:.2f}×"
+                )
+
+                c4.metric(
+                    "Bull / Bear",
+                    f"{a['bull']} / {a['bear']}"
+                )
+
+                st.markdown(
+                    "### 🎯 Trading Levels"
+                )
 
                 c1, c2, c3, c4 = st.columns(4)
 
                 c1.metric(
                     "Entry",
-                    f"{a['entry']:.2f}"
+                    f"{a['price']:.2f}"
                 )
 
                 c2.metric(
@@ -378,46 +551,64 @@ with tab1:
                     f"{a['target2']:.2f}"
                 )
 
-                st.markdown("### 🟢 Bullish Factors")
+                st.markdown(
+                    "### 🟢 Bullish Factors"
+                )
 
-                for x in a["bull"]:
+                for x in a["bull_reasons"]:
                     st.write("• " + x)
 
-                st.markdown("### 🔴 Bearish Factors")
+                st.markdown(
+                    "### 🔴 Bearish Factors"
+                )
 
-                for x in a["bear"]:
+                for x in a["bear_reasons"]:
                     st.write("• " + x)
 
-                st.markdown("### 🧠 Analyst Interpretation")
+                st.markdown(
+                    "### 🧠 Analyst Interpretation"
+                )
 
                 if decision == "STRONG BUY":
                     st.success(
-                        "The setup is bullish and the higher timeframes agree."
+                        "Technical conditions and higher timeframes "
+                        "support the setup. News context does not "
+                        "currently block the signal."
                     )
+
                 elif decision == "BUY":
                     st.success(
-                        "The primary setup is bullish, but confirmation is not perfect."
+                        "The technical setup is bullish, but "
+                        "confirmation is not perfect."
                     )
+
                 elif decision == "WATCH":
                     st.warning(
-                        "There is an interesting setup, but confirmation is incomplete."
+                        "The setup has potential, but confirmation "
+                        "or news conditions require caution."
                     )
-                elif decision in ["EXIT", "STRONG EXIT"]:
+
+                elif decision in [
+                    "EXIT",
+                    "STRONG EXIT"
+                ]:
                     st.error(
-                        "The current technical structure is bearish."
+                        "Current technical conditions are bearish."
                     )
+
                 else:
                     st.info(
-                        "No sufficiently strong setup is confirmed."
+                        "There is not enough confirmation "
+                        "for a strong trading decision."
                     )
 
-                st.markdown("### 📊 Price Chart")
+                st.markdown(
+                    "### 📊 Price Chart"
+                )
 
-                chart = df[[
-                    "Close",
-                    "SMA20",
-                    "SMA50"
-                ]].tail(150)
+                chart = df[
+                    ["Close", "SMA20", "SMA50"]
+                ].tail(150)
 
                 st.line_chart(chart)
 
@@ -426,7 +617,9 @@ with tab1:
 
 with tab2:
 
-    st.subheader("🌍 Global Scanner")
+    st.subheader(
+        "🌍 Global Scanner"
+    )
 
     symbols = st.text_input(
         "Symbols separated by commas",
@@ -441,7 +634,7 @@ with tab2:
 
     if st.button("🚀 Scan Market"):
 
-        result_rows = []
+        rows = []
 
         symbol_list = [
             x.strip().upper()
@@ -451,18 +644,33 @@ with tab2:
 
         progress = st.progress(0)
 
-        for i, sym in enumerate(symbol_list):
+        for i, sym in enumerate(
+            symbol_list
+        ):
 
             try:
-                df = get_data(sym, scan_tf)
+
+                df = get_data(
+                    sym,
+                    scan_tf
+                )
 
                 if not df.empty:
 
                     a = analyze(df)
-                    m = mtf_analysis(sym, scan_tf)
-                    decision = final_decision(a, m)
+                    m = mtf(sym, scan_tf)
 
-                    result_rows.append({
+                    news = news_context(
+                        get_news(sym)
+                    )
+
+                    decision = final_decision(
+                        a,
+                        m,
+                        news
+                    )
+
+                    rows.append({
                         "Symbol": sym,
                         "Decision": decision,
                         "Setup": a["setup"],
@@ -470,11 +678,14 @@ with tab2:
                         "Higher": m["higher"],
                         "Daily": m["daily"],
                         "Alignment": m["score"],
-                        "RSI": round(a["rsi"], 1),
-                        "Volume": round(a["volume"], 2),
+                        "News": news["level"],
+                        "RSI": round(
+                            a["rsi"],
+                            1
+                        ),
                         "Confidence": max(
-                            a["bullish"],
-                            a["bearish"]
+                            a["bull"],
+                            a["bear"]
                         ),
                         "Price": round(
                             a["price"],
@@ -486,15 +697,16 @@ with tab2:
                 pass
 
             progress.progress(
-                (i + 1) / len(symbol_list)
+                (i + 1) /
+                max(len(symbol_list), 1)
             )
 
-        if result_rows:
+        if rows:
 
             table = pd.DataFrame(
-                result_rows
+                rows
             ).sort_values(
-                "Alignment",
+                ["Alignment", "Confidence"],
                 ascending=False
             )
 
@@ -520,11 +732,15 @@ with tab2:
 
 with tab3:
 
-    st.subheader("📜 Signal History")
+    st.subheader(
+        "📜 Signal History"
+    )
 
     if os.path.exists(HISTORY):
 
-        history = pd.read_csv(HISTORY)
+        history = pd.read_csv(
+            HISTORY
+        )
 
         st.dataframe(
             history.tail(100),
@@ -545,4 +761,4 @@ with tab3:
 
 st.caption(
     "Research and analysis tool. Not financial advice."
-    )
+)
