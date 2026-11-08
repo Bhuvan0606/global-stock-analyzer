@@ -13,34 +13,26 @@ def get_stock_data(ticker):
     if data.empty:
         return None
 
-    # Convert yfinance MultiIndex columns to simple columns
+    # Handle yfinance MultiIndex columns
     if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
-
-    # Make sure each important column is a simple Series
-    for column in ["Close"]:
-        if column in data.columns:
-            data[column] = pd.Series(
-                data[column].values,
-                index=data.index
-            )
+        data = data.xs(ticker, axis=1, level=1)
 
     return data
 
 
 def calculate_indicators(data):
-    close = data["Close"]
+    close = data["Close"].astype(float)
 
-    data["SMA_20"] = close.rolling(window=20).mean()
-    data["SMA_50"] = close.rolling(window=50).mean()
+    data["SMA_20"] = close.rolling(20).mean()
+    data["SMA_50"] = close.rolling(50).mean()
 
     delta = close.diff()
 
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
 
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean()
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
 
     rs = avg_gain / avg_loss
 
