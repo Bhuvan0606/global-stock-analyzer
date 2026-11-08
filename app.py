@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 st.title("🌍 Global Stock Analyzer")
-st.caption("Trading setup analyzer v8")
+st.caption("Signal confirmation engine v9")
 
 
 # =========================
@@ -42,12 +42,7 @@ def get_data(symbol, interval):
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
 
-    needed = [
-        "Close",
-        "High",
-        "Low",
-        "Volume"
-    ]
+    needed = ["Close", "High", "Low", "Volume"]
 
     if not all(x in data.columns for x in needed):
         return None
@@ -58,9 +53,7 @@ def get_data(symbol, interval):
             errors="coerce"
         )
 
-    return data.dropna(
-        subset=needed
-    )
+    return data.dropna(subset=needed)
 
 
 # =========================
@@ -73,11 +66,9 @@ def analyze(data):
     high = data["High"]
     low = data["Low"]
 
-    # Moving averages
     data["SMA20"] = close.rolling(20).mean()
     data["SMA50"] = close.rolling(50).mean()
 
-    # RSI
     delta = close.diff()
 
     gain = delta.clip(lower=0)
@@ -90,13 +81,12 @@ def analyze(data):
 
     rs = avg_gain / avg_loss
 
-    data["RSI"] = (
-        100 - (100 / (1 + rs))
+    data["RSI"] = 100 - (
+        100 / (1 + rs)
     )
 
     data["RSI_prev"] = data["RSI"].shift(3)
 
-    # Volume
     data["VolumeAvg"] = (
         data["Volume"].rolling(20).mean()
     )
@@ -106,7 +96,6 @@ def analyze(data):
         data["VolumeAvg"]
     )
 
-    # Support / resistance
     data["Support"] = (
         low.rolling(20).min()
     )
@@ -141,340 +130,336 @@ def analyze(data):
     support = float(x["Support"])
     resistance = float(x["Resistance"])
 
-    bullish = 0
-    bearish = 0
-
-    bull_reasons = []
-    bear_reasons = []
-
     # =========================
     # TREND
     # =========================
 
-    if price > sma20:
+    bullish_trend = (
+        price > sma20 and
+        sma20 > sma50
+    )
 
-        bullish += 15
+    bearish_trend = (
+        price < sma20 and
+        sma20 < sma50
+    )
 
-        bull_reasons.append(
-            "Price is above the 20-period average."
-        )
-
-    else:
-
-        bearish += 15
-
-        bear_reasons.append(
-            "Price is below the 20-period average."
-        )
-
-    if sma20 > sma50:
-
-        bullish += 15
-
-        bull_reasons.append(
-            "Short-term trend is above the medium-term trend."
-        )
-
+    if bullish_trend:
         trend = "BULLISH"
-
-    else:
-
-        bearish += 15
-
-        bear_reasons.append(
-            "Short-term trend is below the medium-term trend."
-        )
-
+    elif bearish_trend:
         trend = "BEARISH"
+    else:
+        trend = "MIXED"
 
     # =========================
-    # RSI
+    # MOMENTUM
     # =========================
+
+    rsi_rising = rsi > rsi_prev
 
     if rsi < 30:
-
-        if rsi > rsi_prev:
-
-            bullish += 15
-
-            bull_reasons.append(
-                "RSI is oversold and starting to recover."
-            )
-
-        else:
-
-            bullish += 5
-
-            bear_reasons.append(
-                "RSI is deeply oversold but has not confirmed a recovery."
-            )
-
+        momentum = "OVERSOLD"
     elif rsi < 40:
-
-        if rsi > rsi_prev:
-
-            bullish += 8
-
-            bull_reasons.append(
-                "RSI is weak but improving."
-            )
-
-        else:
-
-            bearish += 8
-
-            bear_reasons.append(
-                "RSI remains weak."
-            )
-
+        momentum = "WEAK"
     elif rsi <= 65:
-
-        if rsi > rsi_prev:
-
-            bullish += 10
-
-            bull_reasons.append(
-                "Momentum is improving."
-            )
-
-        else:
-
-            bullish += 3
-
-            bear_reasons.append(
-                "Momentum is not strongly improving."
-            )
-
-    elif rsi > 70:
-
-        bearish += 12
-
-        bear_reasons.append(
-            "RSI indicates potentially overbought conditions."
-        )
-
+        momentum = "HEALTHY"
+    elif rsi <= 70:
+        momentum = "STRONG"
     else:
-
-        bearish += 5
-
-        bear_reasons.append(
-            "Momentum is relatively high but weakening."
-        )
+        momentum = "OVERBOUGHT"
 
     # =========================
-    # VOLUME
-    # =========================
-
-    if volume >= 2:
-
-        bullish += 10
-
-        bull_reasons.append(
-            "Volume is unusually high."
-        )
-
-    elif volume >= 1.2:
-
-        bullish += 6
-
-        bull_reasons.append(
-            "Volume is above its recent average."
-        )
-
-    elif volume < 0.8:
-
-        bearish += 5
-
-        bear_reasons.append(
-            "Volume is below its recent average."
-        )
-
-    # =========================
-    # SUPPORT / RESISTANCE
+    # PRICE LOCATION
     # =========================
 
     price_range = resistance - support
 
     if price_range > 0:
-
-        support_distance = (
+        position = (
             (price - support) /
             price_range
         )
-
     else:
+        position = 0.5
 
-        support_distance = 0.5
+    near_support = position <= 0.25
+    near_resistance = position >= 0.75
 
-    near_support = (
-        support_distance <= 0.25
-    )
+    support_broken = price < support
 
-    near_resistance = (
-        support_distance >= 0.75
-    )
+    # =========================
+    # SIGNAL CONDITIONS
+    # =========================
+
+    buy_confirmations = []
+    reversal_conditions = []
+    risk_conditions = []
+
+    # BUY confirmation
+    if bullish_trend:
+        buy_confirmations.append(
+            "Trend is bullish."
+        )
+
+    if rsi >= 45 and rsi <= 65 and rsi_rising:
+        buy_confirmations.append(
+            "Momentum is healthy and improving."
+        )
+
+    if volume >= 1.2:
+        buy_confirmations.append(
+            "Volume confirms market participation."
+        )
+
+    if price > sma20:
+        buy_confirmations.append(
+            "Price is holding above the short-term average."
+        )
+
+    # Reversal conditions
+    if bearish_trend:
+        reversal_conditions.append(
+            "Trend is currently bearish."
+        )
+
+    if rsi < 40:
+        reversal_conditions.append(
+            "RSI is in a weak/oversold zone."
+        )
+
+    if rsi_rising:
+        reversal_conditions.append(
+            "RSI is beginning to recover."
+        )
 
     if near_support:
-
-        bullish += 10
-
-        bull_reasons.append(
+        reversal_conditions.append(
             "Price is near recent support."
         )
 
-    if near_resistance:
+    if volume >= 1.5:
+        reversal_conditions.append(
+            "Unusually high volume is present."
+        )
 
-        bearish += 10
+    # Risks
+    if bearish_trend:
+        risk_conditions.append(
+            "The broader short-term trend is bearish."
+        )
 
-        bear_reasons.append(
-            "Price is near recent resistance."
+    if rsi < 40:
+        risk_conditions.append(
+            "Momentum has not yet returned to bullish territory."
+        )
+
+    if volume >= 2:
+        risk_conditions.append(
+            "Very high volume can indicate either accumulation or heavy selling."
+        )
+
+    if support_broken:
+        risk_conditions.append(
+            "Price is below recent support."
         )
 
     # =========================
-    # SUPPORT BREAK
+    # DECISION ENGINE
     # =========================
 
-    support_break = (
-        price < support
-    )
+    setup = "NO CLEAR SETUP"
+    confirmation = "NOT CONFIRMED"
+    action = "WAIT"
+    trigger = ""
+    invalidation = ""
 
-    if support_break:
+    if support_broken:
 
-        bearish += 20
+        setup = "SUPPORT BREAKDOWN"
+        confirmation = "CONFIRMED"
+        action = "EXIT / AVOID"
 
-        bear_reasons.append(
-            "Price has fallen below recent support."
+        trigger = (
+            "Recovery back above support would weaken the breakdown."
         )
 
-    # =========================
-    # SCORES
-    # =========================
-
-    total = bullish + bearish
-
-    if total > 0:
-
-        bullish_pct = (
-            bullish / total * 100
+        invalidation = (
+            f"Breakdown invalid if price reclaims "
+            f"{support:.2f}."
         )
 
-        bearish_pct = (
-            bearish / total * 100
+    elif (
+        bullish_trend
+        and rsi >= 45
+        and rsi <= 65
+        and rsi_rising
+        and volume >= 1.2
+    ):
+
+        setup = "BULLISH CONTINUATION"
+        confirmation = "CONFIRMED"
+        action = "BUY SETUP"
+
+        trigger = (
+            "Bullish conditions are currently aligned."
+        )
+
+        invalidation = (
+            f"Loss of {support:.2f} would weaken the setup."
+        )
+
+    elif (
+        bearish_trend
+        and near_support
+        and rsi < 40
+    ):
+
+        setup = "POTENTIAL REVERSAL"
+        confirmation = "NOT CONFIRMED"
+        action = "WATCH"
+
+        trigger = (
+            f"BUY confirmation requires price to reclaim "
+            f"the short-term trend level near {sma20:.2f}"
+            f" while RSI continues improving."
+        )
+
+        invalidation = (
+            f"A decisive move below {support:.2f} "
+            f"invalidates the reversal idea."
+        )
+
+    elif bearish_trend:
+
+        setup = "BEARISH CONTINUATION"
+        confirmation = "PARTIALLY CONFIRMED"
+        action = "AVOID / WAIT"
+
+        trigger = (
+            f"Reclaiming {sma20:.2f} would be the first "
+            f"sign of improving conditions."
+        )
+
+        invalidation = (
+            f"Continued trading below {sma20:.2f} "
+            f"keeps the bearish bias active."
         )
 
     else:
 
+        setup = "MIXED MARKET"
+        confirmation = "NOT CONFIRMED"
+        action = "WAIT"
+
+        trigger = (
+            f"Wait for price to establish direction "
+            f"above or below {sma20:.2f}."
+        )
+
+        invalidation = (
+            "No valid directional setup yet."
+        )
+
+    # =========================
+    # SCORE
+    # =========================
+
+    bullish_score = 0
+    bearish_score = 0
+
+    if price > sma20:
+        bullish_score += 20
+    else:
+        bearish_score += 20
+
+    if sma20 > sma50:
+        bullish_score += 20
+    else:
+        bearish_score += 20
+
+    if rsi_rising:
+        bullish_score += 10
+    else:
+        bearish_score += 10
+
+    if rsi < 40:
+        bearish_score += 10
+
+    if 45 <= rsi <= 65:
+        bullish_score += 10
+
+    if volume >= 1.2:
+        bullish_score += 10
+
+    if near_support:
+        bullish_score += 5
+
+    if near_resistance:
+        bearish_score += 5
+
+    if support_broken:
+        bearish_score += 20
+
+    total = bullish_score + bearish_score
+
+    if total > 0:
+        bullish_pct = (
+            bullish_score / total * 100
+        )
+        bearish_pct = (
+            bearish_score / total * 100
+        )
+    else:
         bullish_pct = 50
         bearish_pct = 50
 
-    # =========================
-    # SIGNAL
-    # =========================
-
-    if (
-        support_break
-        and bearish >= bullish
-    ):
-
-        signal = "BREAKDOWN / EXIT"
-
-    elif (
-        bullish >= 60
-        and bullish > bearish + 15
-        and trend == "BULLISH"
-    ):
-
-        signal = "BUY SETUP"
-
-    elif (
-        trend == "BEARISH"
-        and near_support
-        and rsi < 40
-        and volume >= 1.5
-    ):
-
-        signal = "REVERSAL WATCH"
-
-    elif (
-        bearish >= 60
-        and bearish > bullish + 15
-    ):
-
-        signal = "EXIT / SELL WATCH"
-
-    else:
-
-        signal = "WAIT"
-
-    # =========================
-    # CONFIDENCE
-    # =========================
-
-    difference = abs(
-        bullish_pct - bearish_pct
-    )
-
     confidence = int(
-        min(95, 40 + difference * 0.7)
+        min(
+            95,
+            40 +
+            abs(
+                bullish_pct -
+                bearish_pct
+            ) * 0.6
+        )
     )
 
     # =========================
-    # TRADE LEVELS
+    # LEVELS
     # =========================
 
-    if signal == "BUY SETUP":
+    if action == "BUY SETUP":
 
-        entry_low = max(
-            support,
-            price * 0.995
-        )
-
+        entry_low = price * 0.995
         entry_high = price * 1.005
 
-        stop = min(
-            support * 0.995,
-            price * 0.97
-        )
+        stop = support * 0.995
 
-        risk = (
-            price - stop
-        )
+        risk = price - stop
 
-        target1 = (
-            price + risk * 1.5
-        )
+        target1 = price + risk * 1.5
+        target2 = price + risk * 2.5
 
-        target2 = (
-            price + risk * 2.5
-        )
-
-    elif signal == "REVERSAL WATCH":
+    elif action == "WATCH":
 
         entry_low = support
         entry_high = price
 
         stop = support * 0.985
 
-        risk = (
-            price - stop
-        )
+        risk = price - stop
 
         target1 = price + risk * 1.5
         target2 = price + risk * 2.5
 
-    elif signal in [
-        "BREAKDOWN / EXIT",
-        "EXIT / SELL WATCH"
-    ]:
+    elif action == "EXIT / AVOID":
 
         entry_low = price
         entry_high = resistance
 
         stop = resistance * 1.01
 
-        risk = (
-            stop - price
-        )
+        risk = stop - price
 
         target1 = price - risk * 1.5
         target2 = price - risk * 2.5
@@ -488,10 +473,9 @@ def analyze(data):
         target1 = price
         target2 = resistance
 
-    # Risk / reward
-    if signal in [
+    if action in [
         "BUY SETUP",
-        "REVERSAL WATCH"
+        "WATCH"
     ]:
 
         risk = price - stop
@@ -503,21 +487,24 @@ def analyze(data):
         reward = price - target2
 
     if risk > 0:
-
         rr = reward / risk
-
     else:
-
         rr = 0
 
     return {
-        "signal": signal,
+        "setup": setup,
+        "confirmation": confirmation,
+        "action": action,
+        "trigger": trigger,
+        "invalidation": invalidation,
         "trend": trend,
+        "momentum": momentum,
         "price": price,
         "rsi": rsi,
         "volume": volume,
         "support": support,
         "resistance": resistance,
+        "sma20": sma20,
         "bullish_pct": bullish_pct,
         "bearish_pct": bearish_pct,
         "confidence": confidence,
@@ -527,8 +514,9 @@ def analyze(data):
         "target1": target1,
         "target2": target2,
         "rr": rr,
-        "bull_reasons": bull_reasons,
-        "bear_reasons": bear_reasons
+        "buy_confirmations": buy_confirmations,
+        "reversal_conditions": reversal_conditions,
+        "risk_conditions": risk_conditions
     }
 
 
@@ -551,116 +539,115 @@ interval = st.selectbox(
 if st.button("🔎 Analyze Market"):
 
     if not symbol:
-
         st.warning(
             "Enter a stock symbol first."
         )
-
         st.stop()
 
-    symbol = (
-        symbol.strip().upper()
-    )
+    symbol = symbol.strip().upper()
 
     with st.spinner(
         "Downloading market data..."
     ):
 
         try:
-
             data = get_data(
                 symbol,
                 interval
             )
-
         except Exception as error:
-
             st.error(
                 "Market data request failed."
             )
-
             st.code(
                 f"{type(error).__name__}: {error}"
             )
-
             st.stop()
 
     if data is None:
-
         st.error(
             "No market data found. "
             "Check the symbol and timeframe."
         )
-
         st.stop()
 
     with st.spinner(
-        "Analyzing market..."
+        "Running confirmation engine..."
     ):
 
         try:
-
             result = analyze(data)
-
         except Exception as error:
-
             st.error(
                 "Analysis failed."
             )
-
             st.code(
                 f"{type(error).__name__}: {error}"
             )
-
             st.stop()
 
     if result is None:
-
         st.warning(
             "Not enough data."
         )
-
         st.stop()
 
     st.success(
         f"Market analysis completed for {symbol}"
     )
 
-    # SIGNAL
+    # ACTION
 
-    signal = result["signal"]
+    action = result["action"]
 
-    if signal == "BUY SETUP":
+    if action == "BUY SETUP":
 
         st.success(
-            f"🟢 {signal}"
+            f"🟢 {action}"
         )
 
-    elif signal == "REVERSAL WATCH":
+    elif action == "WATCH":
 
         st.warning(
-            f"🟡 {signal}"
+            f"🟡 {action}"
         )
 
-    elif signal == "BREAKDOWN / EXIT":
+    elif action == "EXIT / AVOID":
 
         st.error(
-            f"🔴 {signal}"
-        )
-
-    elif signal == "EXIT / SELL WATCH":
-
-        st.error(
-            f"🔴 {signal}"
+            f"🔴 {action}"
         )
 
     else:
 
         st.info(
-            f"⚪ {signal}"
+            f"⚪ {action}"
         )
 
-    # OVERVIEW
+    # SETUP
+
+    st.subheader(
+        "Setup Decision"
+    )
+
+    a, b, c = st.columns(3)
+
+    a.metric(
+        "Setup",
+        result["setup"]
+    )
+
+    b.metric(
+        "Confirmation",
+        result["confirmation"]
+    )
+
+    c.metric(
+        "Confidence",
+        f"{result['confidence']}%"
+    )
+
+    # MARKET
 
     st.subheader(
         "Market Overview"
@@ -673,44 +660,58 @@ if st.button("🔎 Analyze Market"):
         f"{result['price']:.2f}"
     )
 
-    a = a
-
     b.metric(
-        "Bullish Score",
-        f"{result['bullish_pct']:.0f}%"
-    )
-
-    c.metric(
-        "Bearish Score",
-        f"{result['bearish_pct']:.0f}%"
-    )
-
-    d.metric(
-        "Confidence",
-        f"{result['confidence']}%"
-    )
-
-    # CONDITIONS
-
-    st.subheader(
-        "Market Conditions"
-    )
-
-    a, b, c = st.columns(3)
-
-    a.metric(
         "Trend",
         result["trend"]
     )
 
-    b.metric(
+    c.metric(
         "RSI",
         f"{result['rsi']:.1f}"
     )
 
-    c.metric(
+    d.metric(
         "Volume",
         f"{result['volume']:.2f}×"
+    )
+
+    # BIAS
+
+    st.subheader(
+        "Market Bias"
+    )
+
+    a, b = st.columns(2)
+
+    a.metric(
+        "Bullish",
+        f"{result['bullish_pct']:.0f}%"
+    )
+
+    b.metric(
+        "Bearish",
+        f"{result['bearish_pct']:.0f}%"
+    )
+
+    # ACTION PLAN
+
+    st.subheader(
+        "Action Plan"
+    )
+
+    st.write(
+        f"**Current action:** "
+        f"{result['action']}"
+    )
+
+    st.write(
+        f"**Trigger:** "
+        f"{result['trigger']}"
+    )
+
+    st.write(
+        f"**Invalidation:** "
+        f"{result['invalidation']}"
     )
 
     # LEVELS
@@ -766,41 +767,49 @@ if st.button("🔎 Analyze Market"):
         f"{result['resistance']:.2f}"
     )
 
-    # REASONS
+    # CONFIRMATION
 
     st.subheader(
-        "Why this signal?"
+        "Confirmation Evidence"
     )
 
-    if result["bull_reasons"]:
+    if result["buy_confirmations"]:
 
         st.write(
-            "**Bullish factors**"
+            "**Bullish confirmation**"
         )
 
-        for reason in result["bull_reasons"]:
-
+        for item in result["buy_confirmations"]:
             st.write(
-                f"🟢 {reason}"
+                f"🟢 {item}"
             )
 
-    if result["bear_reasons"]:
+    if result["reversal_conditions"]:
 
         st.write(
-            "**Risk / bearish factors**"
+            "**Setup conditions**"
         )
 
-        for reason in result["bear_reasons"]:
-
+        for item in result["reversal_conditions"]:
             st.write(
-                f"🔴 {reason}"
+                f"🟡 {item}"
+            )
+
+    if result["risk_conditions"]:
+
+        st.write(
+            "**Risks**"
+        )
+
+        for item in result["risk_conditions"]:
+            st.write(
+                f"🔴 {item}"
             )
 
     # CHART
 
     st.subheader(
         "Price"
-
     )
 
     st.line_chart(
@@ -819,11 +828,9 @@ if st.button("🔎 Analyze Market"):
         ]
     ].dropna()
 
-    st.line_chart(
-        chart
-    )
+    st.line_chart(chart)
 
     st.caption(
         "Research tool only. "
         "Signals do not guarantee future returns."
-    )
+        )
